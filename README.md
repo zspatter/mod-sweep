@@ -8,8 +8,9 @@
 Whitelist-driven cleanup for a Skyrim archive directory shared by multiple
 modlists (Wabbajack lists + Nolvus). Builds a union whitelist from modlist
 manifests, classifies every file in the downloads directory against it, and
-reports what is claimed, stale, or unclaimed. **Read-only for now - there is
-deliberately no delete command until the inventory is trusted.**
+reports what is claimed, stale, or unclaimed. **Nothing is deleted outright:
+sweeps move candidates to a restorable quarantine, and only `purge` (or an
+explicit `sweep --apply --delete`) is permanent.**
 
 ## Installation
 
@@ -51,7 +52,9 @@ versions).
 
 Environment is managed with `uv` (`uv sync` once, then `uv run modsweep ...`).
 `modsweep.toml` declares the downloads dir, the active sources of truth, and
-the quarantine dir - with it in place the commands need no arguments. Source
+the quarantine dir - with it in place the commands need no arguments. Start
+from [modsweep.example.toml](modsweep.example.toml) (or let the GUI's Edit
+Config dialog write the file for you). Source
 types are explicit keys (`wabbajack`, `nolvus`, `installs`, `recovery`);
 nothing in the config is auto-detected, so scattered multi-drive setups just
 list each install explicitly. CLI flags override config (`-m` does per-arg
@@ -185,8 +188,8 @@ reason: Wabbajack identifies archives by hash and sometimes renames them on
 disk, so name-only matching produces false deletion candidates (27.6 GB worth
 on the reference disk, some shadowed by stale same-named siblings). Hence:
 hash-check the *candidates* before deleting (`hash --only-candidates`, ~1 min)
-rather than the whole directory. The future delete command must refuse to
-remove any file whose hash was never checked against the whitelist.
+rather than the whole directory. Sweeps refuse to touch any file whose hash
+was never checked against the whitelist.
 
 ## Bundled Nolvus manifests
 

@@ -7,11 +7,16 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.coverage
 
 # modsweep local state
 .modsweep/
 reports/
 snapshots/
+# the local config is personal: paths, and exclude entries may carry
+# private list names (the GUI writes exact-label excludes into it) -
+# the tracked template is modsweep.example.toml
+modsweep.toml
 
 # local-only tooling: the shipped asset is assets/modsweep.ico
 packaging/make_icon.py
