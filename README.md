@@ -310,6 +310,11 @@ rescue/contradiction outcomes, sweep, restore, and purge aging. Shared
 builders for fake manifests live in `tests/helpers.py`. CI runs everything
 on Windows/Linux/macOS × Python 3.12/3.14.
 
+## Acknowledgements
+
+Special thank you to [vektor9999](https://github.com/vektor9999) for
+sharing the Nolvus InstallPackages this project bundles.
+
 ## License
 
 MIT - do what you like with it, keep the attribution (the copyright notice

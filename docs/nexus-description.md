@@ -60,6 +60,10 @@ GitHub.
 **Links.** Source, issues, and other platforms:
 https://github.com/zspatter/mod-sweep - MIT licensed.
 
+**Shout out.** Special thank you to
+[vektor9999](https://www.nexusmods.com/profile/vektor9999) for sharing the
+InstallPackages required for this project.
+
 ## Suggested Nexus fields
 
 - Category: Utilities

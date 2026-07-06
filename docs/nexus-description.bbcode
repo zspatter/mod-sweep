@@ -1,13 +1,10 @@
 [size=4][b]The problem[/b][/size]
-
 Wabbajack lists share one downloads directory, Nolvus adds its own category folders to it, and every list update leaves the old archives behind. After a few lists and a few years, that folder is a terabyte of mixed treasure and dead weight that nobody dares to clean by hand.
 
 [size=4][b]What Mod Sweep does[/b][/size]
-
 It reads the actual sources of truth - your .wabbajack files, the bundled Nolvus install manifests, and the [NoDelete] custom additions inside your MO2 installs - and classifies every file in the downloads folder against them. Anything a list still needs is kept. What remains is shown to you, hash-verified, and only then swept into a quarantine folder you can restore from with one click.
 
 [size=4][b]Safety is the design, not a feature[/b][/size]
-
 [list]
 [*]Nothing is ever deleted directly: sweeps move files to a restorable, timestamped quarantine. Purge - the only permanent delete - is a separate, loudly-confirmed step.
 [*]Files must pass a hash check (xxHash64/CRC32, matching what Wabbajack and Nolvus verify at install time) before they can be swept. A renamed archive that a list still needs is recognized by its hash, not its name.
@@ -15,7 +12,6 @@ It reads the actual sources of truth - your .wabbajack files, the bundled Nolvus
 [/list]
 
 [size=4][b]Highlights[/b][/size]
-
 [list]
 [*]GUI and CLI over the same engine; the GUI needs no manual config file editing at all.
 [*]Handles multiple versions of the same list: keep only the newest (grouped correctly even across list renames), or pin specific versions.
@@ -25,9 +21,10 @@ It reads the actual sources of truth - your .wabbajack files, the bundled Nolvus
 [/list]
 
 [size=4][b]Install[/b][/size]
-
 Download the zip, extract anywhere, run modsweep-gui.exe. Windows SmartScreen may warn on first run - the executables are unsigned open-source builds; "More info > Run anyway". Linux/macOS builds, the Python package (pipx install "modsweep[gui]"), and full source live on GitHub.
 
 [size=4][b]Links[/b][/size]
-
 Source, issues, and other platforms: [url=https://github.com/zspatter/mod-sweep]github.com/zspatter/mod-sweep[/url] - MIT licensed.
+
+[size=4][b]Shout out[/b][/size]
+[size=3]Special thank you to [url=https://www.nexusmods.com/profile/vektor9999]vektor9999[/url] for sharing the InstallPackages required for this project.[/size]
