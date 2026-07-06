@@ -8,6 +8,7 @@ import pytest
 from modsweep import sweep as sweep_mod
 from modsweep.cli import (
     _build_parser,
+    _expand_nolvus,
     _expand_wabbajack,
     _infer_file_kind,
     _purge_threshold,
@@ -48,6 +49,25 @@ def test_explicit_entry_pins_version_through_latest_only(tmp_path):
     with_pin = _expand_wabbajack([wj_dir, wj_dir / "old.wabbajack"])
     labels = {m.label for m in load_manifests(with_pin, latest_only=True)}
     assert labels == {"X 1.0", "X 2.0"}
+
+
+def test_expand_nolvus_dir_is_implicit_file_is_pinned(tmp_path):
+    bundled = tmp_path / "manifests"
+    bundled.mkdir()
+    (bundled / "nolvus-5.0.xml.gz").write_bytes(b"")
+    (bundled / "nolvus-6.0.xml").write_text("", encoding="utf-8")
+    (bundled / "readme.txt").write_text("", encoding="utf-8")  # ignored
+    own = tmp_path / "InstallPackage.xml"
+
+    sources = _expand_nolvus([bundled, own])
+    assert ("nolvus", bundled / "nolvus-5.0.xml.gz", False) in sources
+    assert ("nolvus", bundled / "nolvus-6.0.xml", False) in sources
+    assert ("nolvus", own, True) in sources
+    assert len(sources) == 3
+
+
+def test_infer_file_kind_handles_gz(tmp_path):
+    assert _infer_file_kind(tmp_path / "x.xml.gz") == "nolvus"
 
 
 # --- resolution plumbing ---------------------------------------------------

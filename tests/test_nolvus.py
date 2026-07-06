@@ -28,6 +28,17 @@ def test_load_tools_and_categories(tmp_path):
     assert (mod.kind, mod.subdir, mod.crc32) == ("mod", "1.1 TEST", 0xFFFFFFFF)
 
 
+def test_load_gzipped_manifest(tmp_path):
+    import gzip
+
+    p = tmp_path / "bundled-6.0.xml.gz"
+    with gzip.open(p, "wt", encoding="utf-8") as fh:
+        fh.write(XML)
+    m = nolvus.load(p)
+    assert m.label == "Nolvus Test 6.0"
+    assert len(m.entries) == 2
+
+
 def test_size_kb_matching_allows_rounding_slack():
     e = Entry(file_name="x.7z", size_kb=100)
     assert e.matches_size(100 * 1024)

@@ -16,9 +16,11 @@ wabbajack = [
     'C:\Games\modding_tools\Wabbajack',
 ]
 
-# Nolvus installer manifests (InstallPackage.xml, retrieved from the author).
+# Nolvus installer manifests. The repo bundles gzipped InstallPackage XMLs
+# under manifests\nolvus (a directory entry loads every version inside and
+# is latest_only-filterable); point at your own .xml file to pin it instead.
 nolvus = [
-    'resources\InstallPackage.xml',
+    'manifests\nolvus',
 ]
 
 # MO2 installations checked for [NoDelete]-prefixed custom additions.

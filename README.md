@@ -167,6 +167,21 @@ hash-check the *candidates* before deleting (`hash --only-candidates`, ~1 min)
 rather than the whole directory. The future delete command must refuse to
 remove any file whose hash was never checked against the whitelist.
 
+## Bundled Nolvus manifests
+
+Nolvus `InstallPackage.xml` files are not distributed publicly, so this repo
+bundles them (gzipped, ~2 MB each) under `manifests/nolvus/` — **please do
+not contact the Nolvus author for these files**; new guide releases are
+contributed to this project instead, and multiple versions can coexist in
+the directory. The default config points at the bundled directory (implicit,
+so `latest_only` applies); if you have your own copy, point the `nolvus`
+config key at the `.xml` file directly and it is pinned like any explicit
+entry. The parser reads both `.xml` and `.xml.gz`.
+
+The Nolvus author's upcoming sibling list is expected to ship the same
+manifest format; supporting it should be a matter of dropping its XML into
+the bundle (see Roadmap).
+
 ## Sources of truth
 
 - `.wabbajack` / `modlist.json` is the only *complete* truth (name + size +
@@ -217,3 +232,5 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 ## Roadmap
 
 - GUI for picking manifests and watching progress (nice-to-have).
+- Nolvus sibling list: the author's next guide is expected to use the same
+  InstallPackage format — bundle its manifests as they are released.

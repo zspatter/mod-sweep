@@ -18,7 +18,14 @@ from .manifest import Entry, Manifest
 
 def load(path: Path) -> Manifest:
     path = Path(path)
-    root = ET.parse(path).getroot()
+    if path.name.lower().endswith(".xml.gz"):
+        # Bundled manifests ship gzipped: the raw XML runs ~70 MB.
+        import gzip
+
+        with gzip.open(path, "rb") as fh:
+            root = ET.parse(fh).getroot()
+    else:
+        root = ET.parse(path).getroot()
 
     guide = root.find("./Settings/Guide")
     name = (guide.findtext("Name") if guide is not None else None) or "Nolvus"

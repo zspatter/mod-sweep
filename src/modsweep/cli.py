@@ -189,11 +189,7 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
         sources = _expand_cli(args.manifests or [])
         sources += _expand_installs(args.mo2_all or [], "mo2-all")
     else:
-        sources = _expand_wabbajack(cfg.wabbajack)
-        sources += [("nolvus", p, True) for p in cfg.nolvus]
-        sources += _expand_installs(cfg.installs, "mo2")
-        sources += _expand_installs(cfg.recovery, "mo2-all")
-        sources += [("snapshot", p, True) for p in cfg.snapshots]
+        sources = config_sources(cfg)
     if need_manifests and not sources:
         raise SystemExit("error: no manifest sources (-m) given and none in config")
     return Resolved(
@@ -298,6 +294,32 @@ def _excluded_by(name: str, exclude: list[str]) -> str | None:
     return None
 
 
+def config_sources(cfg: config.Config) -> list[tuple[str, Path, bool]]:
+    """Expand a config's typed source lists (shared by the CLI and the GUI)."""
+    sources = _expand_wabbajack(cfg.wabbajack)
+    sources += _expand_nolvus(cfg.nolvus)
+    sources += _expand_installs(cfg.installs, "mo2")
+    sources += _expand_installs(cfg.recovery, "mo2-all")
+    sources += [("snapshot", p, True) for p in cfg.snapshots]
+    return sources
+
+
+def _expand_nolvus(paths: list[Path]) -> list[tuple[str, Path, bool]]:
+    """A directory of bundled manifests is implicit (latest-only filterable);
+    a file the user names — their own copy from the author — is pinned."""
+    out: list[tuple[str, Path, bool]] = []
+    for path in paths:
+        if path.is_dir():
+            files = sorted(
+                p for p in path.iterdir()
+                if p.name.lower().endswith((".xml", ".xml.gz"))
+            )
+            out.extend(("nolvus", p, False) for p in files)
+        else:
+            out.append(("nolvus", path, True))
+    return out
+
+
 def _expand_wabbajack(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     out: list[tuple[str, Path, bool]] = []
     for path in paths:
@@ -351,12 +373,12 @@ def _expand_cli(paths: list[Path]) -> list[tuple[str, Path, bool]]:
 
 
 def _infer_file_kind(path: Path) -> str | None:
-    suffix = path.suffix.lower()
-    if suffix == ".wabbajack":
+    name = path.name.lower()
+    if name.endswith(".wabbajack"):
         return "wabbajack"
-    if suffix == ".json":
+    if name.endswith(".json"):
         return "snapshot" if snapshot_mod.is_snapshot(path) else "wabbajack"
-    if suffix == ".xml":
+    if name.endswith((".xml", ".xml.gz")):
         return "nolvus"
     return None
 
