@@ -505,6 +505,113 @@ def test_pin_source_rejects_unpinnable_kinds(tmp_path):
     assert "not in the current source list" in win.console.toPlainText()
 
 
+def test_busy_state_disables_actions_and_shows_progress(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win._set_busy(True, "Working")
+    assert not win.buttons["report"].isEnabled()
+    assert not win.buttons["apply"].isEnabled()
+    assert win.buttons["open"].isEnabled()  # config stays reachable
+    assert win.progress.isVisibleTo(win)
+    assert win.progress.maximum() == 0  # indeterminate until real progress
+    win._set_busy(False, "")
+    assert win.buttons["report"].isEnabled()
+    assert not win.progress.isVisibleTo(win)
+
+
+def test_worker_failure_logs_error_and_reenables(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+
+    def action(worker):
+        raise RuntimeError("downloads drive unplugged")
+
+    win._start(action, "Exploding")
+    wait_idle(win)
+    assert "error: downloads drive unplugged" in win.console.toPlainText()
+    assert win.buttons["report"].isEnabled()  # busy state cleared after failure
+
+
+def test_select_all_none_skip_locked_items(tmp_path):
+    from PySide6.QtCore import Qt
+
+    cfg_path = build_two_list_config(tmp_path)
+    cfg_path.write_text(
+        cfg_path.read_text(encoding="utf-8") + "exclude = ['B*']\n", encoding="utf-8"
+    )
+    app()
+    win = window(cfg_path)
+    wait_idle(win)
+    win._set_all_sources(True)
+    locked = find_item(win, "B 1.0")
+    assert locked.checkState(0) == Qt.CheckState.Unchecked  # glob lock holds
+    assert find_item(win, "A 1.0").checkState(0) == Qt.CheckState.Checked
+
+
+def test_apply_selection_resets_dirty_state(tmp_path):
+    from PySide6.QtCore import Qt
+
+    app()
+    win = window(build_two_list_config(tmp_path))
+    wait_idle(win)
+    find_item(win, "B 1.0").setCheckState(0, Qt.CheckState.Unchecked)
+    assert win.apply_selection_btn.isEnabled()
+    win.apply_source_selection()
+    wait_idle(win)
+    assert not win.apply_selection_btn.isEnabled()  # clean after refresh
+
+
+def test_refresh_warns_when_source_vanishes(tmp_path):
+    app()
+    win = window(build_two_list_config(tmp_path))
+    wait_idle(win)  # baseline recorded
+
+    (tmp_path / "b.wabbajack").unlink()
+    win.refresh_sources()
+    wait_idle(win)
+    assert "previously-active source vanished: B 1.0" in win.console.toPlainText()
+
+    win.refresh_sources()  # baseline accepted: no repeat
+    wait_idle(win)
+    assert win.console.toPlainText().count("vanished: B 1.0") == 1
+
+
+def test_sweep_apply_updates_report_tab(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_hash_candidates()
+    wait_idle(win)
+    wait_idle(win)  # chained report fills tables
+    assert win.candidates_table.rowCount() == 1
+    win.tabs.setCurrentIndex(1)  # user wanders off to the Log
+
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        win.run_sweep(apply=True)
+        wait_idle(win)
+        wait_idle(win)  # chained report
+    finally:
+        QMessageBox.question = original
+    assert win.tabs.currentIndex() == 0  # pulled back to the fresh report
+    assert win.candidates_table.rowCount() == 0  # swept clean
+
+
+def test_config_editor_keyword_button_is_idempotent(tmp_path):
+    app()
+    from modsweep import config
+    from modsweep.gui import ConfigEditorDialog
+
+    dialog = ConfigEditorDialog(config.Config())
+    editor = dialog.editors["nolvus"]
+    editor._add_keyword()
+    editor._add_keyword()
+    assert editor.values() == ["bundled"]
+
+
 def test_sources_group_alphabetically_newest_on_top(tmp_path):
     from PySide6.QtCore import Qt
 

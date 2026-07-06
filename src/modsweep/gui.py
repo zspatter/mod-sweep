@@ -204,28 +204,39 @@ def _app_icon() -> QIcon:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    # An upright broom: the handle runs straight into the middle of the
-    # ferrule, which caps a bristle fan symmetric about the same axis.
-    axis = 112  # nudged left so the dust puffs get room on the right
-    painter.setPen(QPen(QColor("#8a5a2b"), 22, Qt.PenStyle.SolidLine,
+    # Draw the broom upright - which makes "handle runs straight into the
+    # ferrule's center" trivially true - then tilt the whole painter for the
+    # mid-sweep pose. The rotation cannot break the joint geometry.
+    painter.save()
+    painter.translate(140, 128)
+    painter.rotate(32)  # clockwise: handle to upper right, bristles lower left
+    painter.translate(-128, -128)
+    painter.setPen(QPen(QColor("#8a5a2b"), 20, Qt.PenStyle.SolidLine,
                         Qt.PenCapStyle.RoundCap))
-    painter.drawLine(axis, 20, axis, 120)  # handle
+    painter.drawLine(128, 30, 128, 122)  # handle
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QBrush(QColor("#c9a227")))
-    painter.drawRoundedRect(axis - 30, 112, 60, 34, 8, 8)  # ferrule
+    painter.drawRoundedRect(128 - 26, 114, 52, 30, 7, 7)  # ferrule
     painter.setBrush(QBrush(QColor("#d9b45b")))
     painter.drawPolygon(QPolygonF([
-        QPointF(axis - 26, 146), QPointF(axis + 26, 146),
-        QPointF(axis + 52, 232), QPointF(axis - 52, 232),
-    ]))  # bristles
+        QPointF(128 - 22, 142), QPointF(128 + 22, 142),
+        QPointF(128 + 50, 224), QPointF(128 - 50, 224),
+    ]))  # bristle fan, symmetric about the handle axis
     painter.setPen(QPen(QColor("#a87f31"), 6))
-    for spread in (-34, -12, 12, 34):
-        painter.drawLine(axis + spread // 2, 152, axis + spread, 226)  # strands
-    # dust puffs trailing off the sweep
-    painter.setPen(QPen(QColor("#9aa0a6"), 5))
+    for spread in (-32, -11, 11, 32):
+        painter.drawLine(128 + spread // 2, 148, 128 + spread, 218)  # strands
+    painter.restore()
+
+    # Dust kicked up on the swept side: open swirls plus a couple of motes.
+    painter.setPen(QPen(QColor("#9aa0a6"), 6, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    for x, y, radius in ((196, 208, 13), (220, 180, 8), (226, 224, 6)):
-        painter.drawEllipse(QPointF(x, y), radius, radius)
+    painter.drawArc(26, 126, 28, 28, 40 * 16, 250 * 16)
+    painter.drawArc(58, 84, 20, 20, 200 * 16, 250 * 16)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(QColor("#9aa0a6")))
+    painter.drawEllipse(QPointF(44, 196), 5, 5)
+    painter.drawEllipse(QPointF(78, 168), 4, 4)
     painter.end()
     return QIcon(pixmap)
 

@@ -219,6 +219,66 @@ def test_hash_only_candidates_hashes_just_candidates(tmp_path):
     assert cached_rows(tmp_path) == 2
 
 
+def test_snapshot_keeps_protection_when_manifest_vanishes(tmp_path, monkeypatch, capsys):
+    """The snapshot story end to end: with a snapshot registered, deleting
+    the .wabbajack costs nothing - same label stays active, so no drift
+    warning fires and the files remain protected."""
+    monkeypatch.chdir(tmp_path)
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    (dl / "claimed.7z").write_bytes(CLAIMED)
+    wj_dir = tmp_path / "lists"
+    wj_dir.mkdir()
+    make_wabbajack(
+        wj_dir / "list.wabbajack", "List", "1.0",
+        [("claimed.7z", len(CLAIMED), wj_hash(CLAIMED))],
+    )
+    snaps = tmp_path / "snaps"
+    cfg = tmp_path / "cfg.toml"
+
+    def write_config(snapshot_line: str) -> None:
+        cfg.write_text(
+            f"downloads = '{dl}'\ncache = '{tmp_path / '.modsweep' / 'h.sqlite'}'\n"
+            f"wabbajack = ['{wj_dir}']\n{snapshot_line}\n",
+            encoding="utf-8",
+        )
+
+    write_config("")
+    assert main(["snapshot", "--config", str(cfg), "--out", str(snaps)]) == 0
+    (snapshot_file,) = snaps.glob("*.json")
+    write_config(f"snapshots = ['{snapshot_file}']")
+    assert main(["report", "--config", str(cfg)]) == 0  # baseline with both
+    capsys.readouterr()
+
+    (wj_dir / "list.wabbajack").unlink()
+    out_csv = tmp_path / "r.csv"
+    assert main(["report", "--config", str(cfg), "--csv", str(out_csv)]) == 0
+    captured = capsys.readouterr()
+    assert "vanished" not in captured.err  # the label never went inactive
+    assert "List 1.0" in captured.out  # still an active source (via snapshot)
+    with open(out_csv, encoding="utf-8-sig") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert row["status"] == "keep"  # protected without the .wabbajack
+
+
+def test_sweep_restore_sweep_is_idempotent(tmp_path):
+    dl, args = build_tree(tmp_path)
+    quarantine = tmp_path / "quarantine"
+    assert main(["hash", *args]) == 0
+
+    assert main(["sweep", *args, "--quarantine", str(quarantine), "--apply"]) == 0
+    first_gone = {p.name for p in dl.rglob("*") if p.is_file()}
+    (batch,) = sweep_mod.list_batches(quarantine)
+    assert main(["restore", str(batch.path)]) == 0
+    assert sweep_mod.list_batches(quarantine) == []  # fully restored, no husk
+
+    assert main(["sweep", *args, "--quarantine", str(quarantine), "--apply"]) == 0
+    second_gone = {p.name for p in dl.rglob("*") if p.is_file()}
+    assert second_gone == first_gone  # identical outcome on the rerun
+    (batch,) = sweep_mod.list_batches(quarantine)
+    assert batch.files > 1  # the re-swept candidates plus the manifest
+
+
 def test_snapshots_classify_identically_to_sources(tmp_path):
     dl, args = build_tree(tmp_path)
     out = tmp_path / "snaps"
