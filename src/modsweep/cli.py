@@ -86,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
         "--apply", action="store_true",
         help="Actually move files (default is a dry run)",
     )
+    swp.add_argument(
+        "--delete", action="store_true",
+        help="Purge the batch immediately after quarantining - NO UNDO; "
+        "requires --apply",
+    )
 
     rst = sub.add_parser("restore", help="Move a quarantined sweep batch back")
     rst.add_argument("batch", type=Path, help="Batch directory created by sweep")
@@ -239,6 +244,8 @@ def _cmd_hash(args: argparse.Namespace) -> int:
 
 
 def _cmd_sweep(args: argparse.Namespace) -> int:
+    if args.delete and not args.apply:
+        raise SystemExit("error: --delete requires --apply")
     res = _resolve(args)
     quarantine = res.quarantine
     if quarantine is None:
@@ -284,6 +291,14 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
         print("\nDry run - nothing moved. Rerun with --apply to quarantine.")
         return 0
     batch = sweep_mod.execute(p, quarantine)
+    if args.delete:
+        sweep_mod.purge_batch(batch)
+        print(
+            f"\nDeleted {len(p.ready):,} files "
+            f"({p.ready_bytes / (1 << 30):,.2f} GB) - quarantined and purged "
+            f"immediately; there is no undo"
+        )
+        return 0
     print(f"\nMoved {len(p.ready):,} files to {batch}")
     print(f"Undo with: modsweep restore \"{batch}\"")
     return 0

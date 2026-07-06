@@ -49,6 +49,7 @@ uv run modsweep hash --only-candidates               # hash-check candidates (pr
 uv run modsweep hash                                 # full hash pass (optional; resumable)
 uv run modsweep sweep                                # dry run: what would be quarantined
 uv run modsweep sweep --apply                        # move candidates to quarantine
+uv run modsweep sweep --apply --delete               # ...and purge immediately (no undo)
 uv run modsweep restore <quarantine\batch-dir>       # undo a sweep batch
 uv run modsweep snapshot                             # export durable whitelists
 uv run modsweep purge                                # age out old quarantine batches
@@ -162,6 +163,14 @@ remove any file whose hash was never checked against the whitelist.
 - `.wabbajack` / `modlist.json` is the only *complete* truth (name + size +
   hash). Keep the .wabbajack files — at 25–70 MB they are tiny next to the
   archives they describe.
+- **Protection lasts only while the manifest is discoverable.** Wabbajack
+  sweeps rely on the `.wabbajack` files being present: uninstalling
+  Wabbajack, or deleting the files themselves, implicitly retires the
+  affected list versions. Their uniquely-claimed archives become sweep
+  candidates on the next run — and unlike `exclude` or `latest_only`, this
+  gets no announcement, because a manifest that is not found is simply not
+  known about. Before uninstalling Wabbajack, either copy the `.wabbajack`
+  files somewhere the config points at or run `modsweep snapshot`.
 - An installation alone still yields a *name-level* whitelist: every MO2 mod
   folder's `meta.ini` records `installationFile=`. Use `--mo2-all <install>`
   for lists whose .wabbajack is gone (no version discrimination beyond the
@@ -177,9 +186,18 @@ reinstatable even after its original .wabbajack is deleted.
 
 `modsweep purge` ages out quarantine batches after a trust period
 (`keep_days` under `[quarantine]`, default 30, or `--older-than`). It is the
-only hard delete in the tool: dry run by default, `--apply` to act, and only
-directories carrying a sweep manifest are ever considered.
+only hard-delete path in the tool: dry run by default, `--apply` to act, and
+only directories carrying a sweep manifest are ever considered.
+
+For users who trust the cleanup and want the space back now,
+`sweep --apply --delete` composes the two steps: the batch is quarantined —
+so every safety rule still applies (hash gate, sidecar binding, dry-run
+preview, batch manifest) — and then purged immediately. **There is no undo.**
+The default remains quarantine + trust period.
 
 ## Roadmap
 
+- End-to-end tests driving the CLI against synthetic downloads trees
+  (seeded in tests/test_cli.py), plus broader unit coverage (report
+  rendering, hash command, CLI plumbing).
 - GUI for picking manifests and watching progress (nice-to-have).

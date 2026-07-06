@@ -120,9 +120,11 @@ def list_batches(quarantine: Path) -> list[Batch]:
     return out
 
 
-def purge_batch(batch: Batch) -> None:
-    """Delete a quarantine batch permanently. The only hard delete in the tool."""
-    shutil.rmtree(batch.path)
+def purge_batch(batch: Batch | Path) -> None:
+    """Delete a quarantine batch permanently. The only hard delete in the tool
+    (`sweep --delete` composes execute + purge_batch rather than adding one)."""
+    path = batch.path if isinstance(batch, Batch) else Path(batch)
+    shutil.rmtree(path)
 
 
 def restore(batch: Path) -> tuple[int, int, int]:
