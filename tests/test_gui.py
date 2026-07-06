@@ -127,6 +127,9 @@ def test_hash_then_sweep_then_restore_via_gui(tmp_path):
     wait_idle(win)  # chained auto-report
     assert (dl / "junk.7z").exists()
     assert "Restored 1 files" in win.console.toPlainText()
+    # Restore cleans up after itself: no husk batch remains selectable.
+    assert sweep_mod.list_batches(tmp_path / "quarantine") == []
+    assert not batch.path.exists()
 
 
 def test_purge_requires_confirmation_and_deletes(tmp_path, monkeypatch):
@@ -505,6 +508,66 @@ def test_pin_source_rejects_unpinnable_kinds(tmp_path):
     assert "not in the current source list" in win.console.toPlainText()
 
 
+class FakeSettings:
+    """Stands in for QSettings so welcome-suppression is testable without
+    touching the real registry/plist."""
+
+    store: dict = {}
+
+    def __init__(self, *args):
+        pass
+
+    def value(self, key, default=False, type=bool):  # noqa: A002 - Qt's API
+        return FakeSettings.store.get(key, default)
+
+    def setValue(self, key, value):
+        FakeSettings.store[key] = value
+
+
+def test_welcome_popup_shows_once_when_suppressed(tmp_path, monkeypatch):
+    app()
+    FakeSettings.store = {}
+    monkeypatch.setattr(gui_mod, "QSettings", FakeSettings)
+    shown = []
+
+    def fake_exec(box):
+        shown.append(box.windowTitle())
+        box.checkBox().setChecked(True)  # the user ticks "don't show again"
+        return 0
+
+    monkeypatch.setattr(gui_mod.QMessageBox, "exec", fake_exec)
+
+    cfg = build_config(tmp_path)
+    first = MainWindow(cfg, show_welcome=True)
+    first.show_result_popups = False
+    wait_idle(first)
+    assert shown == ["Welcome to Mod Sweep"]
+    assert FakeSettings.store["welcome/suppressed"] is True
+
+    second = MainWindow(cfg, show_welcome=True)  # suppressed: no dialog
+    second.show_result_popups = False
+    wait_idle(second)
+    assert shown == ["Welcome to Mod Sweep"]
+
+
+def test_welcome_popup_repeats_until_suppressed(tmp_path, monkeypatch):
+    app()
+    FakeSettings.store = {}
+    monkeypatch.setattr(gui_mod, "QSettings", FakeSettings)
+    shown = []
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "exec",
+        lambda box: (shown.append(box.windowTitle()), 0)[1],  # checkbox left alone
+    )
+    cfg = build_config(tmp_path)
+    for _ in range(2):
+        win = MainWindow(cfg, show_welcome=True)
+        win.show_result_popups = False
+        wait_idle(win)
+    assert len(shown) == 2  # keeps showing until the user opts out
+    assert "welcome/suppressed" not in FakeSettings.store
+
+
 def test_busy_state_disables_actions_and_shows_progress(tmp_path):
     app()
     win = window(build_config(tmp_path))
@@ -610,6 +673,37 @@ def test_config_editor_keyword_button_is_idempotent(tmp_path):
     editor._add_keyword()
     editor._add_keyword()
     assert editor.values() == ["bundled"]
+
+
+def test_tree_groups_renamed_lists_by_machine_id(tmp_path):
+    import json as json_mod
+
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    lists = tmp_path / "lists"
+    lists.mkdir()
+    make_wabbajack(lists / "ls3.wabbajack", "Living Skyrim", "3.0", [])
+    make_wabbajack(lists / "ls4.wabbajack", "Living Skyrim 4", "4.0", [])
+    for name in ("ls3", "ls4"):
+        (lists / f"{name}.wabbajack.metadata").write_text(
+            json_mod.dumps({"links": {"machineURL": "living_skyrim"}}),
+            encoding="utf-8",
+        )
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{lists}']\n",
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+    # Renamed between releases, same machine id: one tree group, newest on top.
+    assert win.sources_list.topLevelItemCount() == 1
+    parent = win.sources_list.topLevelItem(0)
+    assert parent.text(0).startswith("Living Skyrim 4 4.0")
+    assert "[+1 older]" in parent.text(0)
+    assert parent.child(0).text(0).startswith("Living Skyrim 3.0")
 
 
 def test_sources_group_alphabetically_newest_on_top(tmp_path):

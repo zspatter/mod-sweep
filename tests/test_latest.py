@@ -60,6 +60,56 @@ def test_grouping_is_case_insensitive():
     assert kept == [b]
 
 
+def test_group_key_tiers_machine_over_name_over_label():
+    assert Manifest(
+        label="L 1.0", source_path=Path("m"), name="Name", machine="Machine_ID"
+    ).group_key == "machine_id"
+    assert Manifest(
+        label="L 1.0", source_path=Path("m"), name="Name"
+    ).group_key == "name"
+    assert Manifest(label="L 1.0", source_path=Path("m")).group_key == "l 1.0"
+
+
+def test_same_name_different_machine_stay_separate():
+    """Two genuinely different lists sharing a display name never collapse:
+    the machine id outranks the name."""
+    a = Manifest(
+        label="Skyrim Redux 1.0", source_path=Path("m"),
+        name="Skyrim Redux", version="1.0", machine="redux_by_alice",
+    )
+    b = Manifest(
+        label="Skyrim Redux 2.0", source_path=Path("m"),
+        name="Skyrim Redux", version="2.0", machine="redux_by_bob",
+    )
+    kept, superseded, _ = latest_only([a, b])
+    assert kept == [a, b]  # separate groups, both survive
+    assert superseded == []
+
+
+def test_mixed_metadata_availability_may_split_groups():
+    """Documented behavior: a manifest without a machine id falls back to
+    its name, so it only groups with machine-tagged versions when the
+    machine id happens to equal the lowercased name."""
+    tagged = Manifest(
+        label="Living Skyrim 4 4.0", source_path=Path("m"),
+        name="Living Skyrim 4", version="4.0", machine="living_skyrim",
+    )
+    untagged_matching = Manifest(  # name coincides with the machine id
+        label="living skyrim 3.0", source_path=Path("m"),
+        name="living_skyrim", version="3.0",
+    )
+    kept, _, _ = latest_only([tagged, untagged_matching])
+    assert kept == [tagged]  # coincidental key match: grouped
+
+    untagged_differing = Manifest(  # display name differs from machine id
+        label="Living Skyrim 3.0", source_path=Path("m"),
+        name="Living Skyrim", version="3.0",
+    )
+    kept, superseded, _ = latest_only([tagged, untagged_differing])
+    assert kept == [tagged, untagged_differing]  # keys differ: separate groups
+    assert superseded == []
+
+
 def test_machine_id_groups_renamed_lists():
     old = Manifest(
         label="Living Skyrim 3.0", source_path=Path("m"),

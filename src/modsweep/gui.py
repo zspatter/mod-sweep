@@ -24,7 +24,14 @@ from pathlib import Path
 
 try:
     from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, QUrl, Signal
-    from PySide6.QtGui import QBrush, QColor, QDesktopServices, QPen, QPolygonF
+    from PySide6.QtGui import (
+        QBrush,
+        QColor,
+        QDesktopServices,
+        QPainterPath,
+        QPen,
+        QPolygonF,
+    )
     from PySide6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
@@ -208,35 +215,41 @@ def _app_icon() -> QIcon:
     # ferrule's center" trivially true - then tilt the whole painter for the
     # mid-sweep pose. The rotation cannot break the joint geometry.
     painter.save()
-    painter.translate(140, 128)
+    painter.translate(150, 122)
     painter.rotate(32)  # clockwise: handle to upper right, bristles lower left
-    painter.translate(-128, -128)
+    painter.translate(-128, -122)
     painter.setPen(QPen(QColor("#8a5a2b"), 20, Qt.PenStyle.SolidLine,
                         Qt.PenCapStyle.RoundCap))
-    painter.drawLine(128, 30, 128, 122)  # handle
+    painter.drawLine(128, 6, 128, 122)  # handle, taller than the head
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QBrush(QColor("#c9a227")))
-    painter.drawRoundedRect(128 - 26, 114, 52, 30, 7, 7)  # ferrule
+    painter.drawRoundedRect(128 - 24, 114, 48, 28, 7, 7)  # ferrule
+    fan = QPainterPath(QPointF(108, 136))  # bristles dragging into the sweep
+    fan.cubicTo(QPointF(70, 160), QPointF(40, 190), QPointF(46, 214))
+    fan.quadTo(QPointF(90, 230), QPointF(134, 214))
+    fan.quadTo(QPointF(158, 178), QPointF(148, 136))
+    fan.closeSubpath()
     painter.setBrush(QBrush(QColor("#d9b45b")))
-    painter.drawPolygon(QPolygonF([
-        QPointF(128 - 22, 142), QPointF(128 + 22, 142),
-        QPointF(128 + 50, 224), QPointF(128 - 50, 224),
-    ]))  # bristle fan, symmetric about the handle axis
-    painter.setPen(QPen(QColor("#a87f31"), 6))
-    for spread in (-32, -11, 11, 32):
-        painter.drawLine(128 + spread // 2, 148, 128 + spread, 218)  # strands
-    painter.restore()
-
-    # Dust kicked up on the swept side: open swirls plus a couple of motes.
-    painter.setPen(QPen(QColor("#9aa0a6"), 6, Qt.PenStyle.SolidLine,
+    painter.drawPath(fan)
+    painter.setPen(QPen(QColor("#a87f31"), 6, Qt.PenStyle.SolidLine,
                         Qt.PenCapStyle.RoundCap))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawArc(26, 126, 28, 28, 40 * 16, 250 * 16)
-    painter.drawArc(58, 84, 20, 20, 200 * 16, 250 * 16)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QBrush(QColor("#9aa0a6")))
-    painter.drawEllipse(QPointF(44, 196), 5, 5)
-    painter.drawEllipse(QPointF(78, 168), 4, 4)
+    for start, control, end in (
+        ((114, 146), (84, 178), (64, 204)),
+        ((127, 148), (104, 184), (94, 214)),
+        ((139, 146), (126, 184), (124, 212)),
+    ):
+        strand = QPainterPath(QPointF(*start))
+        strand.quadTo(QPointF(*control), QPointF(*end))
+        painter.drawPath(strand)  # strands curve with the drag
+    painter.restore()
+
+    # Dust rings on the opposite side of the sweep, under the handle.
+    painter.setPen(QPen(QColor("#9aa0a6"), 7))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(QPointF(206, 194), 10, 10)
+    painter.drawEllipse(QPointF(186, 228), 6, 6)
+    painter.drawEllipse(QPointF(228, 226), 7, 7)
     painter.end()
     return QIcon(pixmap)
 
@@ -740,7 +753,7 @@ class MainWindow(QMainWindow):
         table.verticalHeader().hide()
         return table
 
-    def _maybe_show_welcome(self) -> None:  # pragma: no cover - modal dialog
+    def _maybe_show_welcome(self) -> None:
         settings = QSettings("modsweep", "modsweep")
         if settings.value("welcome/suppressed", False, type=bool):
             return
