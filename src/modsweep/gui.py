@@ -414,8 +414,10 @@ class ConfigEditorDialog(QDialog):
          "MO2 installations checked for [NoDelete]-prefixed custom "
          "additions: each such mod's source archive is protected in the "
          "downloads folder. Add one install (the folder containing mods/) "
-         "or a parent folder whose direct children are installs. Installs "
-         "without [NoDelete] mods contribute nothing and are skipped."),
+         "or a parent folder - parents are searched a few levels deep, so "
+         "nested layouts like Nolvus (Instances\\&lt;name&gt;\\MODS) are "
+         "found. Installs without [NoDelete] mods contribute nothing and "
+         "are skipped."),
         ("recovery", "Recovery", None, True,
          "Fallback for lists whose .wabbajack manifest is gone: every "
          "archive the install's mods were made from is whitelisted by NAME "

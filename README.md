@@ -86,7 +86,9 @@ default** — and every decision is announced on stderr, never silent.
 1. **Discovery.** Config keys (or CLI `-m`) expand to concrete manifests.
    Directory entries are walked: a `wabbajack` dir is searched recursively
    for `.wabbajack`; an `installs` entry is either an MO2 install or a
-   folder whose direct children are installs. Provenance is recorded here —
+   folder searched a few levels deep for installs (Nolvus nests its
+   instances under `Instances\<name>\MODS`, and the whole wrapped
+   instance layout is handled). Provenance is recorded here —
    a file or install you named yourself is *explicit* (pinned); anything
    found by a directory walk is *implicit*. Nolvus manifests and snapshots
    are always named directly, so they are always pinned.

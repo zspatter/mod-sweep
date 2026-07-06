@@ -450,21 +450,35 @@ def _expand_wabbajack(paths: list[Path]) -> list[tuple[str, Path, bool]]:
 
 
 def _expand_installs(paths: list[Path], kind: str) -> list[tuple[str, Path, bool]]:
-    """An entry is either an MO2 install itself, or a folder whose direct
-    children are installs. Anything else is warned about, never guessed at."""
+    """An entry is either an MO2 install itself, or a folder searched a few
+    levels deep for installs (Nolvus nests its instances under
+    Instances/<name>/MODS). Anything else is warned about, never guessed at."""
     out: list[tuple[str, Path, bool]] = []
     for path in paths:
         if _is_mo2_instance(path):
             out.append((kind, path, True))
             continue
-        instances = [
-            c for c in sorted(path.iterdir()) if c.is_dir() and _is_mo2_instance(c)
-        ] if path.is_dir() else []
+        instances = _find_instances(path, depth=3)
         if instances:
             out.extend((kind, c, False) for c in instances)
         else:
             print(f"warning: {path}: no MO2 install (mods/) found", file=sys.stderr)
     return out
+
+
+def _find_instances(path: Path, depth: int) -> list[Path]:
+    """Instances at or below `path`. A dir owning a mods/ child counts and
+    is never descended into (so modlist installs are not walked); anything
+    else is searched to the depth bound."""
+    if _is_mo2_instance(path):
+        return [path]
+    if depth == 0 or not path.is_dir():
+        return []
+    found: list[Path] = []
+    for child in sorted(path.iterdir()):
+        if child.is_dir():
+            found.extend(_find_instances(child, depth - 1))
+    return found
 
 
 def _expand_cli(paths: list[Path]) -> list[tuple[str, Path, bool]]:

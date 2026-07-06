@@ -73,6 +73,23 @@ def test_infer_file_kind_handles_gz(tmp_path):
     assert _infer_file_kind(tmp_path / "x.xml.gz") == "nolvus"
 
 
+def test_expand_installs_finds_nested_nolvus_instances(tmp_path):
+    from modsweep.cli import _expand_installs
+
+    (tmp_path / "LoreRim" / "mods").mkdir(parents=True)  # flat child install
+    nested = tmp_path / "Nolvus" / "Instances" / "Nolvus Awakening"
+    (nested / "MODS" / "mods").mkdir(parents=True)  # detected via MODS child
+    too_deep = tmp_path / "a" / "b" / "c" / "d"
+    (too_deep / "mods").mkdir(parents=True)  # beyond the depth bound
+
+    sources = _expand_installs([tmp_path], "mo2")
+    paths = {p for _, p, _ in sources}
+    assert tmp_path / "LoreRim" in paths
+    assert nested in paths
+    assert too_deep not in paths  # bounded: not walked arbitrarily deep
+    assert all(not pinned for _, _, pinned in sources)  # dir walk = implicit
+
+
 # --- resolution plumbing ---------------------------------------------------
 
 

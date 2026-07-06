@@ -30,7 +30,17 @@ def load(path: Path, include_all: bool = False) -> Manifest:
     mods_dir = path if path.name.lower() == "mods" else _find_mods_dir(path)
     if mods_dir is None:
         raise ValueError(f"{path}: no MO2 mods directory found")
-    instance = mods_dir.parent.name or str(mods_dir.parent)
+    # Nolvus wraps a whole portable instance in a container named MODS
+    # (MODS/{mods,profiles,overwrite,downloads,...}): what we found may be
+    # that container rather than the real mods dir - descend when the
+    # instance markers say so.
+    inner = _find_mods_dir(mods_dir)
+    if inner is not None and _has_instance_markers(mods_dir):
+        mods_dir = inner
+    instance_dir = mods_dir.parent
+    if instance_dir.name.lower() == "mods":  # the container, not a name
+        instance_dir = instance_dir.parent
+    instance = instance_dir.name or str(instance_dir)
 
     entries, missing = _collect_entries(mods_dir, include_all)
     if missing:
@@ -92,6 +102,16 @@ def _find_mods_dir(instance: Path) -> Path | None:
         if candidate.is_dir() and candidate.name.lower() == "mods":
             return candidate
     return None
+
+
+def _has_instance_markers(directory: Path) -> bool:
+    """True when a directory looks like an MO2 instance root itself
+    (profiles/overwrite/downloads siblings next to its mods dir)."""
+    markers = {"profiles", "overwrite", "downloads"}
+    return any(
+        child.is_dir() and child.name.lower() in markers
+        for child in directory.iterdir()
+    )
 
 
 def _installation_file(meta_ini: Path) -> str | None:
