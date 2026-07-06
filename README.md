@@ -1,5 +1,7 @@
 # mod-sweep
 
+[![CI](https://github.com/zspatter/mod-sweep/actions/workflows/ci.yml/badge.svg)](https://github.com/zspatter/mod-sweep/actions/workflows/ci.yml)
+
 Whitelist-driven cleanup for a Skyrim archive directory shared by multiple
 modlists (Wabbajack lists + Nolvus). Builds a union whitelist from modlist
 manifests, classifies every file in the downloads directory against it, and

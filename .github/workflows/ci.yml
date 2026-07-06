@@ -1,0 +1,28 @@
+# Cross-platform is a standing requirement: Windows is the primary platform,
+# Linux support matters, and macOS must not break — so the matrix covers all
+# three, on the oldest supported and current Python.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python: ['3.12', '3.14']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Install project
+        run: uv sync
+      - name: Run tests
+        run: uv run pytest
