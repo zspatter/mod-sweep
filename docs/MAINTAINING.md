@@ -16,14 +16,14 @@ clone with `uv sync --extra gui` done.
 3. The tag triggers `.github/workflows/release.yml`:
    - builds sdist + wheel and publishes to PyPI via **trusted publishing**
      (registered publisher: repo `zspatter/mod-sweep`, workflow
-     `release.yml`, environment `pypi` — no tokens anywhere);
+     `release.yml`, environment `pypi` - no tokens anywhere);
    - builds the console `modsweep` + windowed `modsweep-gui` executables on
      Windows/Linux/macOS, smoke-tests each frozen CLI (including bundled
      manifest resolution), and attaches the archives to the GitHub release.
 4. Verify: the PyPI page shows the new version; `uv tool upgrade modsweep`
    works; release assets download. Then update NexusMods (below).
 
-PyPI metadata (author, description, README) is immutable per release —
+PyPI metadata (author, description, README) is immutable per release -
 fixes require a new version.
 
 ## Bumping the Nolvus manifests
@@ -41,24 +41,30 @@ Nolvus author.
    GitHub contents API reads `src/modsweep/data/nolvus` on `main`).
    Packaged copies additionally bundle it at the next release.
 
-The expected Nolvus sibling list uses the same format — same procedure,
+The expected Nolvus sibling list uses the same format - same procedure,
 new file name prefix.
 
 ## Updating NexusMods
 
 - Upload the new `modsweep-vX.Y.Z-windows.zip` from the GitHub release and
-  update the page version. Page copy lives in `docs/nexus-description.md` —
-  edit there first, then re-paste.
+  update the page version. Page copy lives in `docs/nexus-description.md`
+  (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
+  Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
+  master first, then update the mirror.
+- New uploads may get auto-quarantined: PyInstaller onefile bootloaders
+  trip AV heuristics (unsigned, new hash, self-extracting). Support review
+  with the GitHub repo and CI build linked clears it; switching the build
+  to onedir is the standing mitigation if it recurs.
 
 ## Assets
 
 - **Icon**: the drawing lives in `modsweep/gui.py::_app_icon`; only the
   exported `assets/modsweep.ico` ships. The exporter
   (`packaging/make_icon.py`) is local-only tooling, deliberately
-  untracked — regenerate with `uv run python packaging/make_icon.py`
+  untracked - regenerate with `uv run python packaging/make_icon.py`
   after changing the drawing.
 - **Screenshots**: `uv run python packaging/make_screenshots.py [config]`
-  regenerates `docs/screenshots/` offscreen (loads Windows fonts manually —
+  regenerates `docs/screenshots/` offscreen (loads Windows fonts manually -
   the offscreen platform has no GDI access). Private list names to hide go
   in the gitignored `packaging/screenshots-omit.txt` (one substring per
   line); rows are removed from the rendered widgets only, so nothing leaks
