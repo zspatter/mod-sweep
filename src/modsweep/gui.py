@@ -61,7 +61,7 @@ except ImportError:  # pragma: no cover - exercised only without the extra
 
 from dataclasses import replace
 
-from . import config, state, sweep as sweep_mod
+from . import config, snapshot as snapshot_mod, state, sweep as sweep_mod
 from .cache import HashCache
 from .cli import (
     DEFAULT_CACHE,
@@ -105,8 +105,12 @@ TOOLTIPS = {
     "apply": "Move all candidates to a timestamped quarantine batch "
     "(undo with Restore)",
     "restore": "Move a quarantined batch back into the downloads directory",
-    "purge": "PERMANENTLY delete a quarantine batch - the only "
-    "unrecoverable action in modsweep",
+    "purge": "PERMANENTLY delete a quarantine batch of YOUR choosing, any "
+    "age - the keep_days trust period only guides the CLI's age-based "
+    "purge, not this button",
+    "snapshot": "Export each active source as a compact whitelist that "
+    "survives deletion of the original manifest - cheap insurance before "
+    "uninstalling Wabbajack",
 }
 
 
@@ -259,11 +263,13 @@ class ConfigEditorDialog(QDialog):
     SOURCE_TABS = (
         ("wabbajack", "Wabbajack", "Wabbajack lists (*.wabbajack *.json)", True,
          "Wabbajack modlists - the complete source of truth (name + size + "
-         "hash per archive). Add a <i>folder</i> to use every .wabbajack "
-         "inside it (all versions, filterable by latest-only); add a "
-         "specific <i>file</i> to pin that exact version so no filter drops "
-         "it. Wabbajack keeps downloaded lists under "
-         "&lt;install&gt;\\&lt;version&gt;\\downloaded_mod_lists."),
+         "hash per archive). Add a <i>folder</i> and it is searched "
+         "<b>recursively through every subdirectory</b> for .wabbajack "
+         "files - pointing at the Wabbajack software's own folder finds all "
+         "downloaded lists across its version directories "
+         "(&lt;install&gt;\\&lt;version&gt;\\downloaded_mod_lists). Folder "
+         "finds load implicitly (latest-only filterable); add a specific "
+         "<i>file</i> to pin that exact version so no filter drops it."),
         ("nolvus", "Nolvus", "Nolvus manifests (*.xml *.xml.gz)", True,
          "Nolvus installer manifests (InstallPackage.xml / .xml.gz). This "
          "project bundles them under manifests/nolvus - add that folder "
@@ -524,6 +530,7 @@ class MainWindow(QMainWindow):
             "apply": QPushButton("Sweep + Apply..."),
             "restore": QPushButton("Restore..."),
             "purge": QPushButton("Purge..."),
+            "snapshot": QPushButton("Snapshot..."),
         }
         for name, button in self.buttons.items():
             button.setToolTip(TOOLTIPS[name])
@@ -536,6 +543,7 @@ class MainWindow(QMainWindow):
         self.buttons["apply"].clicked.connect(lambda: self.run_sweep(apply=True))
         self.buttons["restore"].clicked.connect(lambda: self.run_restore())
         self.buttons["purge"].clicked.connect(lambda: self.run_purge())
+        self.buttons["snapshot"].clicked.connect(lambda: self.run_snapshot())
 
     def _build_tabs(self) -> None:
         self.summary_label = QLabel("Run Report to classify the downloads directory.")
@@ -787,7 +795,8 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.warning(
             self,
             "Permanently delete batch?",
-            f"PERMANENTLY delete this quarantine batch?\n\n{described}\n\n"
+            f"PERMANENTLY delete this quarantine batch?\n\n{described}"
+            f"{self._trust_period_note(Path(batch))}\n\n"
             "This is the only unrecoverable action in modsweep.\n"
             "There is NO undo.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -880,16 +889,59 @@ class MainWindow(QMainWindow):
                 subset.append(result)
         return subset
 
+    def run_snapshot(self, out_dir: Path | None = None) -> None:
+        if out_dir is None:  # pragma: no cover - native dialog
+            base = self.config_path.parent if self.config_path else Path(".")
+            chosen = QFileDialog.getExistingDirectory(
+                self, "Snapshot output folder", str(base)
+            )
+            if not chosen:
+                return
+            out_dir = Path(chosen)
+
+        def action(worker: Worker) -> None:
+            manifests = self._load_active(worker)
+            for m in manifests:
+                path = snapshot_mod.save(m, out_dir)
+                worker.line.emit(f"  {m.label} -> {path.name}")
+            worker.summary.emit(
+                f"{len(manifests)} snapshot(s) written to {out_dir} - these "
+                f"whitelists outlive their original manifests."
+            )
+
+        self._start(action, "Exporting snapshots")
+
     def _quarantine_batches(self) -> list[sweep_mod.Batch]:
         quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
         return sweep_mod.list_batches(quarantine)
 
+    def _find_batch(self, batch: Path) -> sweep_mod.Batch | None:
+        return next((b for b in self._quarantine_batches() if b.path == batch), None)
+
     def _describe_batch(self, batch: Path) -> str:
-        for b in self._quarantine_batches():
-            if b.path == batch:
-                age = (datetime.now() - b.created).days
-                return f"{b.path.name}  ({b.files:,} files, {_gb(b.size)}, {age}d old)"
-        return str(batch)
+        b = self._find_batch(batch)
+        if b is None:
+            return str(batch)
+        age = (datetime.now() - b.created).days
+        return f"{b.path.name}  ({b.files:,} files, {_gb(b.size)}, {age}d old)"
+
+    def _trust_period_note(self, batch: Path) -> str:
+        b = self._find_batch(batch)
+        if b is None:
+            return ""
+        keep_days = (
+            self.cfg.quarantine_keep_days
+            if self.cfg.quarantine_keep_days is not None
+            else 30
+        )
+        age = (datetime.now() - b.created).days
+        if age >= keep_days:
+            return ""
+        return (
+            f"\n\nNote: this batch is only {age}d old - younger than the "
+            f"{keep_days}-day trust period. (keep_days guides the CLI's "
+            f"age-based purge; this button purges whatever you pick.)"
+        )
 
     def _pick_batch(self, title: str) -> Path | None:  # pragma: no cover - dialog
         batches = self._quarantine_batches()
@@ -936,22 +988,32 @@ class MainWindow(QMainWindow):
                 if is_exact_exclude(info.detail, m.label):
                     item.setToolTip("Excluded - tick to reinstate")
                 else:
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                    self._lock_item(item, f"excluded by '{info.detail}'")
                     item.setToolTip(
                         f"Excluded by the pattern '{info.detail}' - manage "
                         f"it under Edit Config > Exclude"
                     )
             else:  # superseded by latest-only
                 item.setCheckState(Qt.CheckState.Unchecked)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                self._lock_item(item, "locked by latest_only")
                 item.setToolTip(
-                    f"Superseded by {info.detail} (latest-only). To keep "
-                    f"this version anyway, add its manifest file explicitly "
-                    f"under Edit Config - explicit entries are pinned."
+                    f"latest_only is locking this version out: {info.detail} "
+                    f"supersedes it. To keep this version anyway, add its "
+                    f"manifest file explicitly under Edit Config (any tab's "
+                    f"Add File...) - explicitly named files are pinned and "
+                    f"survive the filter."
                 )
             self.sources_list.addItem(item)
         self._suppress_source_signal = False
         self.apply_selection_btn.setEnabled(False)
+
+    @staticmethod
+    def _lock_item(item: QListWidgetItem, reason: str) -> None:
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        item.setText(f"{item.text()}  - {reason}")
+        font = item.font()
+        font.setItalic(True)
+        item.setFont(font)
 
     def _on_source_toggled(self, _item) -> None:
         if not self._suppress_source_signal:

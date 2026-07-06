@@ -314,6 +314,70 @@ def test_select_none_then_all_roundtrip(tmp_path):
     )
 
 
+def test_latest_only_locks_superseded_with_visible_hint(tmp_path):
+    from PySide6.QtCore import Qt
+
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    make_wabbajack(tmp_path / "old.wabbajack", "X", "1.0", [])
+    make_wabbajack(tmp_path / "new.wabbajack", "X", "2.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    # Point at the folder: explicit files would be pinned and never locked.
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"latest_only = true\nwabbajack = ['{tmp_path}']\n",
+        encoding="utf-8",
+    )
+    app()
+    win = window(cfg)
+    wait_idle(win)
+    item = find_item(win, "X 1.0")
+    assert "locked by latest_only" in item.text()  # visible without hovering
+    assert item.font().italic()
+    assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert "pinned" in item.toolTip()  # the hover hint explains the way out
+    assert find_item(win, "X 2.0").checkState() == Qt.CheckState.Checked
+
+
+def test_snapshot_from_gui(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    out = tmp_path / "snaps"
+    win.run_snapshot(out)
+    wait_idle(win)
+    assert len(list(out.glob("*.json"))) == 1
+    assert "1 snapshot(s) written" in win.console.toPlainText()
+
+
+def test_purge_confirmation_flags_young_batches(tmp_path, monkeypatch):
+    app()
+    win = swept_window(tmp_path)
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        win.run_sweep(apply=True)
+        wait_idle(win)
+        wait_idle(win)
+    finally:
+        QMessageBox.question = original
+    (batch,) = sweep_mod.list_batches(tmp_path / "quarantine")
+
+    prompts = []
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "warning",
+        staticmethod(
+            lambda parent, title, text, *a, **k: (
+                prompts.append(text), QMessageBox.StandardButton.No
+            )[1]
+        ),
+    )
+    win.run_purge(batch.path)
+    assert batch.path.exists()  # declined
+    assert "younger than the 30-day trust period" in prompts[0]
+    assert "purges whatever you pick" in prompts[0]
+
+
 def test_action_results_pop_up(tmp_path, monkeypatch):
     app()
     win = window(build_config(tmp_path))

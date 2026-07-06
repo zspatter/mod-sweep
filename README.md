@@ -214,7 +214,10 @@ reinstatable even after its original .wabbajack is deleted.
 `modsweep purge` ages out quarantine batches after a trust period
 (`keep_days` under `[quarantine]`, default 30, or `--older-than`). It is the
 only hard-delete path in the tool: dry run by default, `--apply` to act, and
-only directories carrying a sweep manifest are ever considered.
+only directories carrying a sweep manifest are ever considered. Note the
+split in semantics: `keep_days` governs only this age-based CLI purge — the
+GUI's Purge button deletes exactly the batch you pick, any age, after its
+confirmation (which calls out batches still younger than the trust period).
 
 For users who trust the cleanup and want the space back now,
 `sweep --apply --delete` composes the two steps: the batch is quarantined —
@@ -235,9 +238,12 @@ checkable list — active and pinned sources are ticked; excluded and
 superseded ones stay visible but unticked, each explaining itself on hover.
 Untick lists to retire them (All/None for bulk) and Apply Selection writes
 exact-label excludes to the config for you; ticking an excluded list
-reinstates it (glob-excluded and superseded entries are locked, with the
-tooltip pointing at the editor). Action results pop up as dialogs in
-addition to the status bar and Log, so outcomes are unmissable. Edit Config...
+reinstates it. Locked entries say why inline — italic with a
+"locked by latest_only" / "excluded by '<glob>'" suffix — and their
+tooltips explain the way out (pin the file explicitly, or edit the glob).
+A Snapshot... button exports the active sources' durable whitelists to a
+chosen folder. Action results pop up as dialogs in addition to the status
+bar and Log, so outcomes are unmissable. Edit Config...
 opens a full editor — downloads/quarantine folder pickers, purge trust
 period, latest-only toggle, per-kind source tabs (Wabbajack / Nolvus /
 Installs / Recovery / Snapshots) with add-file/add-folder buttons, and the
