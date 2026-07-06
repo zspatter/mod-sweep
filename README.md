@@ -51,6 +51,7 @@ uv run modsweep sweep                                # dry run: what would be qu
 uv run modsweep sweep --apply                        # move candidates to quarantine
 uv run modsweep restore <quarantine\batch-dir>       # undo a sweep batch
 uv run modsweep snapshot                             # export durable whitelists
+uv run modsweep purge                                # age out old quarantine batches
 ```
 
 The hash cache lives in `.modsweep/hashes.sqlite`, keyed by path and
@@ -174,7 +175,11 @@ remove any file whose hash was never checked against the whitelist.
 `snapshots` config key, or `-m file.json`), so a list stays retirable and
 reinstatable even after its original .wabbajack is deleted.
 
+`modsweep purge` ages out quarantine batches after a trust period
+(`keep_days` under `[quarantine]`, default 30, or `--older-than`). It is the
+only hard delete in the tool: dry run by default, `--apply` to act, and only
+directories carrying a sweep manifest are ever considered.
+
 ## Roadmap
 
-- Quarantine aging: purge batches after a trust period.
 - GUI for picking manifests and watching progress (nice-to-have).

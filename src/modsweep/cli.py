@@ -99,6 +99,23 @@ def main(argv: list[str] | None = None) -> int:
         "--out", type=Path, default=Path("snapshots"), help="Output directory"
     )
 
+    prg = sub.add_parser(
+        "purge",
+        help="Permanently delete quarantine batches older than a trust "
+        "period (dry run unless --apply)",
+    )
+    prg.add_argument("--config", type=Path, help="Config file")
+    prg.add_argument("--quarantine", type=Path, help="Quarantine directory")
+    prg.add_argument(
+        "--older-than", type=int, metavar="DAYS",
+        help="Age threshold in days (default: [quarantine] keep_days in "
+        "config, else 30)",
+    )
+    prg.add_argument(
+        "--apply", action="store_true",
+        help="Actually delete (default is a dry run)",
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "report":
         return _cmd_report(args)
@@ -110,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_restore(args)
     if args.cmd == "snapshot":
         return _cmd_snapshot(args)
+    if args.cmd == "purge":
+        return _cmd_purge(args)
     return 2
 
 
@@ -277,6 +296,45 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         print(f"{skipped:,} skipped: original path already occupied (left in quarantine).")
     if missing:
         print(f"{missing:,} listed in the manifest were not found in the batch.")
+    return 0
+
+
+def _cmd_purge(args: argparse.Namespace) -> int:
+    from datetime import datetime, timedelta
+
+    cfg = config.load(args.config)
+    quarantine = args.quarantine or cfg.quarantine
+    if quarantine is None:
+        raise SystemExit("error: no --quarantine given and none in config")
+    days = args.older_than if args.older_than is not None else (
+        cfg.quarantine_keep_days if cfg.quarantine_keep_days is not None else 30
+    )
+    batches = sweep_mod.list_batches(quarantine)
+    if not batches:
+        print(f"No sweep batches under {quarantine}.")
+        return 0
+    cutoff = datetime.now() - timedelta(days=days)
+    aged = [b for b in batches if b.created < cutoff]
+    for b in batches:
+        age = (datetime.now() - b.created).days
+        verdict = "purge" if b.created < cutoff else "keep"
+        print(
+            f"  [{verdict}]  {b.path.name}  {age:>4}d old  "
+            f"{b.files:,} files  {b.size / (1 << 30):,.2f} GB"
+        )
+    total = sum(b.size for b in aged)
+    print(
+        f"\n{len(aged)} of {len(batches)} batch(es) older than {days} days "
+        f"({total / (1 << 30):,.2f} GB)"
+    )
+    if not aged:
+        return 0
+    if not args.apply:
+        print("Dry run - nothing deleted. Rerun with --apply to purge.")
+        return 0
+    for b in aged:
+        sweep_mod.purge_batch(b)
+        print(f"purged {b.path}")
     return 0
 
 

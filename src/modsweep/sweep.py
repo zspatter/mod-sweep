@@ -85,6 +85,46 @@ def execute(p: Plan, quarantine: Path) -> Path:
     return batch
 
 
+@dataclass
+class Batch:
+    path: Path
+    created: datetime
+    files: int
+    size: int
+
+
+def list_batches(quarantine: Path) -> list[Batch]:
+    """Enumerate sweep batches under the quarantine dir.
+
+    Only directories carrying a sweep manifest count — anything else in the
+    quarantine dir is never touched. Age comes from the batch dir's
+    timestamp name, falling back to filesystem mtime.
+    """
+    quarantine = Path(quarantine)
+    if not quarantine.is_dir():
+        return []
+    out: list[Batch] = []
+    for d in sorted(quarantine.iterdir()):
+        if not d.is_dir() or not (d / MANIFEST_NAME).exists():
+            continue
+        try:
+            created = datetime.strptime(d.name, "%Y-%m-%d_%H%M%S")
+        except ValueError:
+            created = datetime.fromtimestamp(d.stat().st_mtime)
+        files = size = 0
+        for f in d.rglob("*"):
+            if f.is_file():
+                files += 1
+                size += f.stat().st_size
+        out.append(Batch(path=d, created=created, files=files, size=size))
+    return out
+
+
+def purge_batch(batch: Batch) -> None:
+    """Delete a quarantine batch permanently. The only hard delete in the tool."""
+    shutil.rmtree(batch.path)
+
+
 def restore(batch: Path) -> tuple[int, int, int]:
     """Move a batch back to its original locations.
 

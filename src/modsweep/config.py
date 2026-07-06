@@ -30,6 +30,7 @@ class Config:
     exclude: list[str] = field(default_factory=list)  # globs vs label or file name
     latest_only: bool = False  # keep only the newest version of each list
     quarantine: Path | None = None
+    quarantine_keep_days: int | None = None  # purge batches older than this
 
     @property
     def has_sources(self) -> bool:
@@ -57,7 +58,9 @@ def load(path: Path | None) -> Config:
     def resolve_list(key: str) -> list[Path]:
         return [resolve(v) for v in data.get(key, [])]
 
-    quarantine = (data.get("quarantine") or {}).get("dir")
+    quarantine_data = data.get("quarantine") or {}
+    quarantine = quarantine_data.get("dir")
+    keep_days = quarantine_data.get("keep_days")
     return Config(
         downloads=resolve(data["downloads"]) if "downloads" in data else None,
         cache=resolve(data["cache"]) if "cache" in data else None,
@@ -69,4 +72,5 @@ def load(path: Path | None) -> Config:
         exclude=[str(v) for v in data.get("exclude", [])],
         latest_only=bool(data.get("latest_only", False)),
         quarantine=resolve(quarantine) if quarantine else None,
+        quarantine_keep_days=int(keep_days) if keep_days is not None else None,
     )

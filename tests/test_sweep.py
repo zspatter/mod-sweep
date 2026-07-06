@@ -66,6 +66,46 @@ def test_execute_and_restore_roundtrip(tmp_path):
     assert (dl / "sub" / "junk.zip").exists()
 
 
+def test_list_batches_only_counts_real_batches(tmp_path):
+    q = tmp_path / "quarantine"
+    real = q / "2020-01-01_000000"
+    real.mkdir(parents=True)
+    (real / sweep_mod.MANIFEST_NAME).write_text("rel_path\n", encoding="utf-8")
+    (real / "old.7z").write_bytes(b"x" * 10)
+    (q / "random-folder").mkdir()  # no manifest: not a batch, never touched
+
+    batches = sweep_mod.list_batches(q)
+    assert [b.path for b in batches] == [real]
+    b = batches[0]
+    assert (b.created.year, b.files) == (2020, 2)
+    assert b.size > 0
+
+
+def test_list_batches_falls_back_to_mtime_for_odd_names(tmp_path):
+    q = tmp_path / "quarantine"
+    odd = q / "not-a-timestamp"
+    odd.mkdir(parents=True)
+    (odd / sweep_mod.MANIFEST_NAME).write_text("rel_path\n", encoding="utf-8")
+    (batch,) = sweep_mod.list_batches(q)
+    assert batch.created.year >= 2020  # mtime of a dir created just now
+
+
+def test_purge_batch_deletes_recursively(tmp_path):
+    q = tmp_path / "quarantine"
+    real = q / "2020-01-01_000000"
+    (real / "sub").mkdir(parents=True)
+    (real / sweep_mod.MANIFEST_NAME).write_text("rel_path\n", encoding="utf-8")
+    (real / "sub" / "junk.zip").write_bytes(b"x")
+    (batch,) = sweep_mod.list_batches(q)
+    sweep_mod.purge_batch(batch)
+    assert not real.exists()
+    assert q.exists()
+
+
+def test_missing_quarantine_dir_lists_nothing(tmp_path):
+    assert sweep_mod.list_batches(tmp_path / "nope") == []
+
+
 def test_restore_refuses_to_overwrite(tmp_path):
     dl = make_downloads(tmp_path)
     cache = HashCache(tmp_path / "c.sqlite")
