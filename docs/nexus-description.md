@@ -79,6 +79,9 @@ GitHub.
    (the only permanent action, behind a deliberately scary confirmation),
    or just let batches age out.
 
+Every pane, button, and state icon is documented in the
+[GUI tour](https://github.com/zspatter/mod-sweep/blob/main/docs/gui.md).
+
 **Reading the report.**
 - *Keep (hash verified)* and *Keep (name+size match)* - an active list
   still needs this file. Protected; sweeps never touch it.
@@ -103,7 +106,9 @@ with a right-click. Run Report again and watch the reclaim number grow.
 scripting and scheduled cleanups: `report` (with CSV export), `hash`,
 `sweep` (dry run by default), `restore`, `purge`, `snapshot` (export
 durable whitelists that survive deleting the original `.wabbajack`),
-`update-manifests`, and `check-update`. Full documentation on GitHub.
+`update-manifests`, and `check-update`. Every command, flag, and config
+key is documented in the
+[usage guide](https://github.com/zspatter/mod-sweep/blob/main/docs/usage.md).
 
 **Good to know.**
 - The config lives in `modsweep.toml` next to where you run the app; the
@@ -116,7 +121,11 @@ durable whitelists that survive deleting the original `.wabbajack`),
   while a list's manifest exists, and snapshots are durable copies.
 
 **Links.** Source, issues, and other platforms:
-https://github.com/zspatter/mod-sweep - MIT licensed.
+https://github.com/zspatter/mod-sweep - MIT licensed. Documentation:
+[usage guide](https://github.com/zspatter/mod-sweep/blob/main/docs/usage.md)
+(every command and config key) and
+[GUI tour](https://github.com/zspatter/mod-sweep/blob/main/docs/gui.md)
+(every pane and button).
 
 **Shout out.** Special thank you to
 [vektor9999](https://www.nexusmods.com/profile/vektor9999) for sharing the

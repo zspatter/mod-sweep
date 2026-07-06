@@ -31,6 +31,7 @@ Download the zip, extract anywhere, run modsweep-gui.exe from the extracted fold
 [*]Click [b]Sweep (Dry Run)[/b] to preview the exact file list, then [b]Sweep + Apply[/b] to move it into a timestamped quarantine batch.
 [*]Changed your mind? [b]Restore...[/b] puts a whole batch back exactly where it was. Confident? [b]Purge...[/b] deletes a batch permanently (the only permanent action, behind a deliberately scary confirmation), or just let batches age out.
 [/list]
+Every pane, button, and state icon is documented in the [url=https://github.com/zspatter/mod-sweep/blob/main/docs/gui.md]GUI tour[/url].
 
 [size=4][b]Reading the report[/b][/size]
 [list]
@@ -45,7 +46,7 @@ The claims table shows what each list protects; its [b]unique[/b] column is the 
 Every list found is protected by default - forgetting one keeps its files, always. To let go of one, untick it in the sources panel (fully reversible: tick it again to reinstate), or turn on [i]latest only[/i] in the config editor to keep just the newest version of every list automatically. Old versions you want to keep can be pinned with a right-click. Run Report again and watch the reclaim number grow.
 
 [size=4][b]Command line included[/b][/size]
-The same engine ships as modsweep.exe for scripting and scheduled cleanups: report (with CSV export), hash, sweep (dry run by default), restore, purge, snapshot (export durable whitelists that survive deleting the original .wabbajack), update-manifests, and check-update. Full documentation on GitHub.
+The same engine ships as modsweep.exe for scripting and scheduled cleanups: report (with CSV export), hash, sweep (dry run by default), restore, purge, snapshot (export durable whitelists that survive deleting the original .wabbajack), update-manifests, and check-update. Every command, flag, and config key is documented in the [url=https://github.com/zspatter/mod-sweep/blob/main/docs/usage.md]usage guide[/url].
 
 [size=4][b]Good to know[/b][/size]
 [list]
@@ -55,7 +56,7 @@ The same engine ships as modsweep.exe for scripting and scheduled cleanups: repo
 [/list]
 
 [size=4][b]Links[/b][/size]
-Source, issues, and other platforms: [url=https://github.com/zspatter/mod-sweep]github.com/zspatter/mod-sweep[/url] - MIT licensed.
+Source, issues, and other platforms: [url=https://github.com/zspatter/mod-sweep]github.com/zspatter/mod-sweep[/url] - MIT licensed. Documentation: the [url=https://github.com/zspatter/mod-sweep/blob/main/docs/usage.md]usage guide[/url] (every command and config key) and the [url=https://github.com/zspatter/mod-sweep/blob/main/docs/gui.md]GUI tour[/url] (every pane and button).
 
 [size=4][b]Shout out[/b][/size]
 [size=3]Special thank you to [url=https://www.nexusmods.com/profile/vektor9999]vektor9999[/url] for sharing the InstallPackages required for this project.[/size]
