@@ -141,6 +141,40 @@ def test_purge_lifecycle(tmp_path, monkeypatch, capsys):
     assert fresh.exists()
 
 
+def test_modified_file_requires_rehash_before_sweep(tmp_path, capsys):
+    """The hash gate re-applies when a hashed file changes on disk: the
+    cache invalidates on size/mtime, so the file counts as unhashed again."""
+    dl, args = build_tree(tmp_path)
+    assert main(["hash", *args]) == 0
+
+    modified = dl / "junk.7z"
+    modified.write_bytes(b"DIFFERENT CONTENT NOW")  # size and mtime change
+
+    capsys.readouterr()
+    assert main(["sweep", *args, "--quarantine", str(tmp_path / "q")]) == 0
+    text = capsys.readouterr().out
+    assert "Refused (hash never checked): 2 files" in text  # junk.7z + its .meta
+    assert modified.exists()
+
+    assert main(["hash", *args]) == 0  # re-hash picks it up again
+    capsys.readouterr()
+    assert main(["sweep", *args, "--quarantine", str(tmp_path / "q")]) == 0
+    assert "Refused" not in capsys.readouterr().out
+
+
+def test_log_level_debug_emits_diagnostics(tmp_path, capsys):
+    _, args = build_tree(tmp_path)
+    assert main(["report", *args, "--log-level", "debug"]) == 0
+    err = capsys.readouterr().err
+    assert "resolved 3 active source(s)" in err
+    assert "scanned" in err and "matched" in err
+    assert "loaded List 1.0 (wabbajack)" in err
+
+    capsys.readouterr()
+    assert main(["report", *args]) == 0  # default: diagnostics stay quiet
+    assert "scanned" not in capsys.readouterr().err
+
+
 def test_quarantine_inside_downloads_rejected(tmp_path):
     dl, args = build_tree(tmp_path)
     with pytest.raises(SystemExit):

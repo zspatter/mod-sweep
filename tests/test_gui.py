@@ -159,6 +159,75 @@ def test_purge_requires_confirmation_and_deletes(tmp_path, monkeypatch):
     assert "permanently deleted" in win.console.toPlainText()
 
 
+def test_candidate_status_has_hover_help(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_report()
+    wait_idle(win)
+    tooltip = win.candidates_table.item(0, 1).toolTip()
+    assert "No active source references this file" in tooltip
+
+
+def test_quarantine_single_file_moves_it_and_its_meta_only(tmp_path):
+    app()
+    dl = tmp_path / "downloads"
+    win = window(build_config(tmp_path))
+    (dl / "junk.7z.meta").write_text("[General]\n", encoding="utf-8")
+    wait_idle(win)
+    win.run_hash_candidates()
+    wait_idle(win)
+    wait_idle(win)  # chained report stores _last_results
+
+    win.quarantine_file("junk.7z")
+    wait_idle(win)
+    wait_idle(win)  # chained report
+    assert not (dl / "junk.7z").exists()
+    assert not (dl / "junk.7z.meta").exists()
+    assert (dl / "claimed.7z").exists()
+    (batch,) = sweep_mod.list_batches(tmp_path / "quarantine")
+    assert batch.path.name.endswith("_file")
+    assert "Quarantined junk.7z" in win.console.toPlainText()
+
+
+def test_delete_single_file_confirms_then_purges(tmp_path, monkeypatch):
+    app()
+    dl = tmp_path / "downloads"
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_hash_candidates()
+    wait_idle(win)
+    wait_idle(win)
+
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "warning",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+    win.delete_file("junk.7z")
+    assert (dl / "junk.7z").exists()  # declined: nothing happened
+
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "warning",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.delete_file("junk.7z")
+    wait_idle(win)
+    wait_idle(win)
+    assert not (dl / "junk.7z").exists()
+    assert sweep_mod.list_batches(tmp_path / "quarantine") == []  # purged
+    assert "Deleted junk.7z" in win.console.toPlainText()
+
+
+def test_pipeline_log_lines_drain_into_console(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_report()
+    wait_idle(win)
+    text = win.console.toPlainText()
+    assert "INFO modsweep.matcher: matched" in text
+
+
 def test_tables_sort_numerically(tmp_path):
     app()
     dl = tmp_path / "downloads"

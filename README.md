@@ -56,7 +56,10 @@ uv run modsweep purge                                # age out old quarantine ba
 ```
 
 The hash cache lives in `.modsweep/hashes.sqlite`, keyed by path and
-invalidated when size or mtime changes.
+invalidated when size or mtime changes — so a file that changes after
+hashing automatically counts as unhashed again and sweeps refuse it until
+it is re-hashed. All commands accept `--log-level debug|info` for
+diagnostics on stderr (timings, per-source parse detail).
 
 ## Source resolution
 
@@ -238,9 +241,13 @@ picker), and Purge (batch picker plus a strongly-worded confirmation; the
 only permanent deletion) — run on a worker thread with an indeterminate
 progress bar and status-bar summaries, so the window never looks frozen and
 every action visibly reports its outcome even when there was nothing to do.
-State-changing actions re-run the report automatically. No custom palette
-or stylesheet is set anywhere, so the interface follows the system
-light/dark theme natively.
+State-changing actions re-run the report automatically. Candidate rows
+explain their status on hover and carry a context menu: open in the file
+manager, quarantine just that file, or delete it (confirmation, no undo) —
+single-file batches reuse the normal batch machinery, so they remain
+restorable and purgeable like any sweep. Pipeline timings stream into the
+Log tab. No custom palette or stylesheet is set anywhere, so the interface
+follows the system light/dark theme natively.
 
 ## Testing
 
@@ -264,9 +271,10 @@ on Windows/Linux/macOS × Python 3.12/3.14.
   real .ico to replace the emoji-rendered broom.
 - Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
   install modsweep` delivers both CLI and GUI without cloning; then a
-  release workflow building standalone executables (PyInstaller: windowed
-  `modsweep-gui.exe` + console `modsweep.exe` from one spec) for users
-  without Python.
+  release workflow building standalone executables per platform (the
+  cross-platform requirement carries over: the CI matrix pattern applies,
+  producing Windows/Linux/macOS artifacts — PyInstaller emits a windowed
+  `modsweep-gui` + console `modsweep` pair from one spec, per OS).
 - Performance: cache parsed manifests keyed by (path, size, mtime) so the
   large modlist JSONs are not re-parsed on every action — the actual cost
   behind source refreshing. Parallel hashing deliberately skipped: hashing

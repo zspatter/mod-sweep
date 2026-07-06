@@ -8,12 +8,16 @@ disqualify a match.
 
 from __future__ import annotations
 
+import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .cache import HashCache
 from .manifest import Entry, Manifest
 from .scanner import DiskFile
+
+log = logging.getLogger(__name__)
 
 KEEP_VERIFIED = "keep-verified"  # name + hash match
 KEEP = "keep"  # name + size match, hash not yet computed
@@ -66,6 +70,7 @@ def match(
     manifests: list[Manifest],
     cache: HashCache | None = None,
 ) -> list[FileResult]:
+    start = time.perf_counter()
     index = _Index(manifests)
     results: dict[str, FileResult] = {}  # keyed by exact rel — case matters on POSIX
     lower_rel: dict[str, str] = {}  # case-insensitive lookup for sidecar binding
@@ -95,6 +100,10 @@ def match(
                     sidecar=True,
                 )
             )
+    log.info(
+        "matched %d files against %d sources in %.2fs",
+        len(out), len(manifests), time.perf_counter() - start,
+    )
     return out
 
 

@@ -14,7 +14,10 @@ Requires the `gui` extra: `uv sync --extra gui`, then `modsweep-gui
 from __future__ import annotations
 
 import io
+import logging
+import subprocess
 import sys
+import threading
 from contextlib import redirect_stderr
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +34,7 @@ try:
         QLabel,
         QListWidget,
         QMainWindow,
+        QMenu,
         QMessageBox,
         QPlainTextEdit,
         QProgressBar,
@@ -87,8 +91,39 @@ TOOLTIPS = {
 }
 
 
+STATUS_HELP = {
+    "keep-verified": "Hash matches an active source - protected",
+    "keep": "Name and size match an active source (or a name-only source "
+    "such as [NoDelete] claims it) - protected",
+    "stale-version": "An active source knows this file name, but not this "
+    "exact file's hash - a superseded or re-uploaded version",
+    "unclaimed": "No active source references this file at all",
+    "meta-orphan": "A .meta sidecar whose archive is gone",
+}
+
+
 def _gb(size: float) -> str:
     return f"{size / (1 << 30):,.2f} GB"
+
+
+class GuiLogHandler(logging.Handler):
+    """Collects log records thread-safely; the UI drains them between actions."""
+
+    def __init__(self):
+        super().__init__()
+        self.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        self._records: list[str] = []
+        self._records_lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with self._records_lock:
+            self._records.append(self.format(record))
+
+    def drain(self) -> list[str]:
+        with self._records_lock:
+            drained = self._records[:]
+            self._records.clear()
+        return drained
 
 
 def _app_icon() -> QIcon:
@@ -183,6 +218,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
         self.log("Tip: hover any button for guidance; action output lands here.")
+        self._log_handler = GuiLogHandler()
+        pipeline_logger = logging.getLogger("modsweep")
+        pipeline_logger.addHandler(self._log_handler)
+        if pipeline_logger.level in (logging.NOTSET, logging.WARNING):
+            pipeline_logger.setLevel(logging.INFO)  # timings surface in the Log
+
+        self._last_results: dict[str, object] = {}
         self.config_path = config_path
         self.cfg = config.load(config_path)
         self.status_config = QLabel()
@@ -226,6 +268,16 @@ class MainWindow(QMainWindow):
             "Unique = claimed by no other source: what retiring that source would free"
         )
         self.candidates_table = self._make_table(["Size", "Status", "Path"])
+        self.candidates_table.setToolTip(
+            "Right-click a row: open in your file manager, quarantine just "
+            "that file, or delete it. Hover a status for what it means."
+        )
+        self.candidates_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.candidates_table.customContextMenuRequested.connect(
+            self._candidates_menu
+        )
 
         report_tab = QWidget()
         report_layout = QVBoxLayout(report_tab)
@@ -446,6 +498,84 @@ class MainWindow(QMainWindow):
 
         self._start(action, "Purging")
 
+    # --- per-file actions (candidates context menu) ------------------------
+
+    def _candidates_menu(self, pos) -> None:  # pragma: no cover - native menu
+        item = self.candidates_table.itemAt(pos)
+        if item is None:
+            return
+        rel = self.candidates_table.item(item.row(), 2).text()
+        menu = QMenu(self)
+        menu.addAction("Open in file manager", lambda: self._reveal(rel))
+        menu.addSeparator()
+        menu.addAction("Quarantine this file", lambda: self.quarantine_file(rel))
+        menu.addAction("Delete this file...", lambda: self.delete_file(rel))
+        menu.exec(self.candidates_table.viewport().mapToGlobal(pos))
+
+    def _reveal(self, rel: str) -> None:  # pragma: no cover - launches OS shell
+        path = Path(self.cfg.downloads) / rel
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+
+    def quarantine_file(self, rel: str, purge: bool = False) -> None:
+        subset = self._results_for(rel)
+        if not subset:
+            self._on_status(f"error: {rel} is not in the last report - run Report first")
+            return
+        if purge:
+            answer = QMessageBox.warning(
+                self,
+                "Permanently delete file?",
+                f"PERMANENTLY delete this file (and its .meta sidecar)?\n\n"
+                f"{rel}\n\nQuarantined and immediately purged - there is NO undo.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        def action(worker: Worker) -> None:
+            cache = HashCache(self._cache_path())
+            try:
+                plan = sweep_mod.plan(subset, cache)
+            finally:
+                cache.close()
+            if plan.refused:
+                worker.status.emit(
+                    f"Refused: {rel} has no verified hash - run Hash Candidates first."
+                )
+                return
+            if not plan.ready:
+                worker.status.emit(f"{rel} is not an eligible candidate.")
+                return
+            quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
+            batch = sweep_mod.execute(plan, quarantine, tag="file")
+            if purge:
+                sweep_mod.purge_batch(batch)
+                worker.status.emit(f"Deleted {rel} - permanently.")
+            else:
+                worker.status.emit(
+                    f"Quarantined {rel} -> {batch.name} (restorable)."
+                )
+
+        self._start(action, "Quarantining file", then_report=True)
+
+    def delete_file(self, rel: str) -> None:
+        self.quarantine_file(rel, purge=True)
+
+    def _results_for(self, rel: str) -> list:
+        """The stored FileResult for rel, plus its .meta sidecar if present."""
+        subset = []
+        for key in (rel, rel + ".meta"):
+            result = self._last_results.get(key)
+            if result is not None:
+                subset.append(result)
+        return subset
+
     def _quarantine_batches(self) -> list[sweep_mod.Batch]:
         quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
         return sweep_mod.list_batches(quarantine)
@@ -486,6 +616,7 @@ class MainWindow(QMainWindow):
             self.sources_list.addItem(f"{m.label}  ({len(m.entries)} entries)")
 
     def _show_report(self, manifests: list[Manifest], results) -> None:
+        self._last_results = {r.disk.rel: r for r in results}
         total_files = len(results)
         total_bytes = sum(r.disk.size for r in results)
         self.summary_label.setText(
@@ -510,14 +641,14 @@ class MainWindow(QMainWindow):
                 for source, claimed, unique, unique_size in claim_rows(results)
             ],
         )
-        self._fill(
-            self.candidates_table,
-            [
-                [NumericItem(size, _gb(size)), QTableWidgetItem(status),
-                 QTableWidgetItem(rel)]
-                for size, status, rel in candidate_rows(results)
-            ],
-        )
+        candidate_items = []
+        for size, status, rel in candidate_rows(results):
+            status_item = QTableWidgetItem(status)
+            status_item.setToolTip(STATUS_HELP.get(status, status))
+            candidate_items.append(
+                [NumericItem(size, _gb(size)), status_item, QTableWidgetItem(rel)]
+            )
+        self._fill(self.candidates_table, candidate_items)
         self.tabs.setCurrentIndex(0)
 
     @staticmethod
@@ -558,6 +689,8 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _on_finished(self, then_report: bool) -> None:
+        for record in self._log_handler.drain():
+            self.log(record)
         self._set_busy(False, "")
         if then_report:
             self.run_report()

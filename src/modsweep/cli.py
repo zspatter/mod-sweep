@@ -9,6 +9,7 @@ Defaults come from modsweep.toml (see config.py); CLI arguments override it.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 from dataclasses import dataclass
@@ -23,9 +24,16 @@ from .scanner import DiskFile, scan
 
 DEFAULT_CACHE = Path(".modsweep") / "hashes.sqlite"
 
+log = logging.getLogger(__name__)
+
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, getattr(args, "log_level", "warning").upper()),
+        format="%(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
     handlers = {
         "report": _cmd_report,
         "hash": _cmd_hash,
@@ -85,6 +93,11 @@ def _common_options() -> argparse.ArgumentParser:
         "--latest-only", action="store_true",
         help="Keep only the newest version of each list (grouped by list "
         "name); superseded manifests are announced",
+    )
+    common.add_argument(
+        "--log-level", default="warning",
+        choices=("debug", "info", "warning", "error"),
+        help="Diagnostic verbosity on stderr (timings, per-source detail)",
     )
     return common
 
@@ -226,9 +239,14 @@ def load_manifests(
     though they still compete as versions. Every drop or pin-save is
     announced on stderr — no silent decisions.
     """
+    start = time.perf_counter()
     manifests, pinned = _load_sources(sources, exclude or [])
     if latest_only:
         manifests = _apply_latest_filter(manifests, pinned)
+    log.info(
+        "resolved %d active source(s) from %d candidate(s) in %.2fs",
+        len(manifests), len(sources), time.perf_counter() - start,
+    )
     return manifests
 
 
@@ -254,11 +272,16 @@ def _load_source(kind: str, path: Path, exclude: list[str]) -> Manifest | None:
     if pattern:
         print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
         return None
+    start = time.perf_counter()
     try:
         manifest = _LOADERS[kind](path)
     except Exception as exc:  # a bad manifest shouldn't sink the run
         print(f"warning: skipping {path}: {exc}", file=sys.stderr)
         return None
+    log.debug(
+        "loaded %s (%s): %d entries in %.2fs",
+        manifest.label, kind, len(manifest.entries), time.perf_counter() - start,
+    )
     pattern = _excluded_by(manifest.label, exclude)
     if pattern:
         print(f"excluded ({pattern}): {manifest.label}", file=sys.stderr)

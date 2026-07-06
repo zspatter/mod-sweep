@@ -106,6 +106,21 @@ def test_missing_quarantine_dir_lists_nothing(tmp_path):
     assert sweep_mod.list_batches(tmp_path / "nope") == []
 
 
+def test_execute_tag_suffixes_batch_and_keeps_age_parseable(tmp_path):
+    dl = make_downloads(tmp_path)
+    cache = HashCache(tmp_path / "c.sqlite")
+    results = results_for(dl)
+    for r in results:
+        if not r.disk.is_meta:
+            cache.put(r.disk, "h", 1)
+    batch = sweep_mod.execute(
+        sweep_mod.plan(results, cache), tmp_path / "quarantine", tag="file"
+    )
+    assert batch.name.endswith("_file")
+    (listed,) = sweep_mod.list_batches(tmp_path / "quarantine")
+    assert listed.created.year >= 2026  # parsed from the stamp prefix, not mtime
+
+
 def test_restore_refuses_to_overwrite(tmp_path):
     dl = make_downloads(tmp_path)
     cache = HashCache(tmp_path / "c.sqlite")

@@ -16,16 +16,21 @@ Safety rules:
 from __future__ import annotations
 
 import csv
+import logging
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from .cache import HashCache
 from .matcher import META_ORPHAN, STALE, UNCLAIMED, FileResult
 
 CANDIDATE_STATUSES = (STALE, UNCLAIMED, META_ORPHAN)
 MANIFEST_NAME = "sweep-manifest.csv"
+_BATCH_STAMP = "%Y-%m-%d_%H%M%S"
+_STAMP_LEN = 17  # len of a formatted _BATCH_STAMP
 _COLUMNS = ["rel_path", "original_path", "status", "size_bytes", "claimed_by", "note"]
 
 
@@ -63,12 +68,24 @@ def plan(results: list[FileResult], cache: HashCache) -> Plan:
             refused.append(r)
         else:
             ready.append(r)
+    log.info(
+        "sweep plan: %d ready (%.2f GB), %d refused unhashed (%.2f GB)",
+        len(ready), sum(r.disk.size for r in ready) / (1 << 30),
+        len(refused), sum(r.disk.size for r in refused) / (1 << 30),
+    )
     return Plan(ready=ready, refused=refused)
 
 
-def execute(p: Plan, quarantine: Path) -> Path:
-    """Move planned files into a new timestamped batch; return the batch dir."""
-    batch = Path(quarantine) / datetime.now().strftime("%Y-%m-%d_%H%M%S")
+def execute(p: Plan, quarantine: Path, tag: str = "") -> Path:
+    """Move planned files into a new timestamped batch; return the batch dir.
+
+    `tag` suffixes the batch name (e.g. single-file quarantines from the
+    GUI); the timestamp prefix stays parseable for age-based purging.
+    """
+    name = datetime.now().strftime(_BATCH_STAMP)
+    if tag:
+        name = f"{name}_{tag}"
+    batch = Path(quarantine) / name
     batch.mkdir(parents=True, exist_ok=False)
     with open(batch / MANIFEST_NAME, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
@@ -108,7 +125,7 @@ def list_batches(quarantine: Path) -> list[Batch]:
         if not d.is_dir() or not (d / MANIFEST_NAME).exists():
             continue
         try:
-            created = datetime.strptime(d.name, "%Y-%m-%d_%H%M%S")
+            created = datetime.strptime(d.name[:_STAMP_LEN], _BATCH_STAMP)
         except ValueError:
             created = datetime.fromtimestamp(d.stat().st_mtime)
         files = size = 0

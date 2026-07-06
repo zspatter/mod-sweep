@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 META_SUFFIX = ".meta"
 
@@ -30,6 +34,7 @@ class DiskFile:
 
 def scan(root: Path) -> list[DiskFile]:
     root = Path(root)
+    start = time.perf_counter()
     out: list[DiskFile] = []
 
     def walk(directory: Path, subdir: str) -> None:
@@ -53,4 +58,9 @@ def scan(root: Path) -> list[DiskFile]:
                     )
 
     walk(root, "")
+    log.info(
+        "scanned %s: %d files (%.1f GB) in %.2fs",
+        root, len(out), sum(f.size for f in out) / (1 << 30),
+        time.perf_counter() - start,
+    )
     return out
