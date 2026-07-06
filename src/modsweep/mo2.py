@@ -32,24 +32,7 @@ def load(path: Path, include_all: bool = False) -> Manifest:
         raise ValueError(f"{path}: no MO2 mods directory found")
     instance = mods_dir.parent.name or str(mods_dir.parent)
 
-    entries: list[Entry] = []
-    missing: list[str] = []
-    for mod_dir in sorted(mods_dir.iterdir()):
-        if not mod_dir.is_dir():
-            continue
-        name = mod_dir.name
-        if not include_all and not name.lower().startswith(NODELETE_PREFIX):
-            continue
-        if name.lower().endswith("_separator"):
-            continue
-        archive = _installation_file(mod_dir / "meta.ini")
-        if archive:
-            # meta.ini may hold a full Windows-style path even when read on
-            # POSIX; split on both separators rather than trusting Path.
-            name = archive.replace("\\", "/").rsplit("/", 1)[-1]
-            entries.append(Entry(file_name=name, kind="custom"))
-        else:
-            missing.append(name)
+    entries, missing = _collect_entries(mods_dir, include_all)
     if missing:
         print(
             f"warning: {instance}: {len(missing)} mod(s) have no "
@@ -59,6 +42,39 @@ def load(path: Path, include_all: bool = False) -> Manifest:
     label = f"MO2 install {instance}" if include_all else f"[NoDelete] {instance}"
     # No version: each instance is its own group under latest-only filtering.
     return Manifest(label=label, source_path=mods_dir, entries=entries, name=label)
+
+
+def _collect_entries(
+    mods_dir: Path, include_all: bool
+) -> tuple[list[Entry], list[str]]:
+    """Gather archive entries from mod folders; also return folders that
+    record no source archive (in-place creations with nothing to protect)."""
+    entries: list[Entry] = []
+    missing: list[str] = []
+    for mod_dir in sorted(mods_dir.iterdir()):
+        if not _wanted(mod_dir, include_all):
+            continue
+        archive = _installation_file(mod_dir / "meta.ini")
+        if archive:
+            entries.append(Entry(file_name=_base_name(archive), kind="custom"))
+        else:
+            missing.append(mod_dir.name)
+    return entries, missing
+
+
+def _wanted(mod_dir: Path, include_all: bool) -> bool:
+    if not mod_dir.is_dir():
+        return False
+    name = mod_dir.name.lower()
+    if name.endswith("_separator"):
+        return False
+    return include_all or name.startswith(NODELETE_PREFIX)
+
+
+def _base_name(archive: str) -> str:
+    # meta.ini may hold a full Windows-style path even when read on POSIX;
+    # split on both separators rather than trusting Path.
+    return archive.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def has_nodelete_mods(path: Path) -> bool:

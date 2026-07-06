@@ -105,51 +105,65 @@ def _classify(
 ) -> FileResult:
     candidates = index.by_name.get(disk.name.lower(), [])
     cached = cache.get(disk) if cache is not None else None
-
     if cached is not None:
         xxh64_b64, crc32 = cached
-        hash_matches = [
-            (label, e) for label, e in candidates if e.matches_hash(xxh64_b64, crc32)
-        ]
-        if hash_matches:
-            return FileResult(
-                disk,
-                KEEP_VERIFIED,
-                sorted({label for label, _ in hash_matches}),
-                _location_note(disk, hash_matches),
-            )
-        rescued = index.hash_hits(xxh64_b64, crc32)
-        if rescued:
-            names = sorted({e.file_name for _, e in rescued})
-            return FileResult(
-                disk,
-                KEEP_VERIFIED,
-                sorted({label for label, _ in rescued}),
-                f"hash matches manifest entry named {names[0]}",
-            )
-        # Hashless sources ([NoDelete] custom additions, MO2-install recovery)
-        # can still claim by name — there is nothing to verify against.
-        hashless = [
-            (label, e)
-            for label, e in candidates
-            if e.matches_hash(xxh64_b64, crc32) is None and e.matches_size(disk.size)
-        ]
-        if hashless:
-            return FileResult(
-                disk,
-                KEEP,
-                sorted({label for label, _ in hashless}),
-                _join("claimed by name-only source", _location_note(disk, hashless)),
-            )
-        if not candidates:
-            return FileResult(disk, UNCLAIMED, note="hash matches no manifest entry")
-        # Name is known to some list, but this exact file is not.
+        return _classify_hashed(disk, candidates, index, xxh64_b64, crc32)
+    return _classify_unhashed(disk, candidates)
+
+
+def _classify_hashed(
+    disk: DiskFile,
+    candidates: list[tuple[str, Entry]],
+    index: _Index,
+    xxh64_b64: str,
+    crc32: int,
+) -> FileResult:
+    hash_matches = [
+        (label, e) for label, e in candidates if e.matches_hash(xxh64_b64, crc32)
+    ]
+    if hash_matches:
         return FileResult(
             disk,
-            STALE,
-            note=_join("hash matches no manifest entry", _location_note(disk, candidates)),
+            KEEP_VERIFIED,
+            sorted({label for label, _ in hash_matches}),
+            _location_note(disk, hash_matches),
         )
+    rescued = index.hash_hits(xxh64_b64, crc32)
+    if rescued:
+        names = sorted({e.file_name for _, e in rescued})
+        return FileResult(
+            disk,
+            KEEP_VERIFIED,
+            sorted({label for label, _ in rescued}),
+            f"hash matches manifest entry named {names[0]}",
+        )
+    # Hashless sources ([NoDelete] custom additions, MO2-install recovery)
+    # can still claim by name — there is nothing to verify against.
+    hashless = [
+        (label, e)
+        for label, e in candidates
+        if e.matches_hash(xxh64_b64, crc32) is None and e.matches_size(disk.size)
+    ]
+    if hashless:
+        return FileResult(
+            disk,
+            KEEP,
+            sorted({label for label, _ in hashless}),
+            _join("claimed by name-only source", _location_note(disk, hashless)),
+        )
+    if not candidates:
+        return FileResult(disk, UNCLAIMED, note="hash matches no manifest entry")
+    # Name is known to some list, but this exact file is not.
+    return FileResult(
+        disk,
+        STALE,
+        note=_join("hash matches no manifest entry", _location_note(disk, candidates)),
+    )
 
+
+def _classify_unhashed(
+    disk: DiskFile, candidates: list[tuple[str, Entry]]
+) -> FileResult:
     if not candidates:
         return FileResult(disk, UNCLAIMED)
     size_matches = [(label, e) for label, e in candidates if e.matches_size(disk.size)]

@@ -1,9 +1,9 @@
 """modsweep command-line interface.
 
 `report` and `hash` are read-only against the downloads directory. `sweep`
-never hard-deletes: it moves candidates to a quarantine batch that `restore`
-can put back. Defaults come from modsweep.toml (see config.py); CLI arguments
-override it.
+never hard-deletes on its own: candidates move to a quarantine batch that
+`restore` can put back (`--delete` composes sweep with an immediate purge).
+Defaults come from modsweep.toml (see config.py); CLI arguments override it.
 """
 
 from __future__ import annotations
@@ -19,12 +19,44 @@ from .cache import HashCache
 from .manifest import Manifest
 from .matcher import match
 from .report import summarize, write_csv
-from .scanner import scan
+from .scanner import DiskFile, scan
 
 DEFAULT_CACHE = Path(".modsweep") / "hashes.sqlite"
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    handlers = {
+        "report": _cmd_report,
+        "hash": _cmd_hash,
+        "sweep": _cmd_sweep,
+        "restore": _cmd_restore,
+        "snapshot": _cmd_snapshot,
+        "purge": _cmd_purge,
+    }
+    return handlers[args.cmd](args)
+
+
+# --- argument parsing -------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="modsweep",
+        description="Whitelist-driven cleanup for shared modlist archive directories.",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    common = _common_options()
+    _add_report(sub, common)
+    _add_hash(sub, common)
+    _add_sweep(sub, common)
+    _add_restore(sub)
+    _add_snapshot(sub, common)
+    _add_purge(sub)
+    return parser
+
+
+def _common_options() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--config", type=Path,
@@ -54,19 +86,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Keep only the newest version of each list (grouped by list "
         "name); superseded manifests are announced",
     )
+    return common
 
-    parser = argparse.ArgumentParser(
-        prog="modsweep",
-        description="Whitelist-driven cleanup for shared modlist archive directories.",
-    )
-    sub = parser.add_subparsers(dest="cmd", required=True)
 
+def _add_report(sub, common) -> None:
     rep = sub.add_parser(
         "report", parents=[common],
         help="Read-only inventory: classify downloads against manifests",
     )
     rep.add_argument("--csv", type=Path, help="Write per-file detail to this CSV")
 
+
+def _add_hash(sub, common) -> None:
     hsh = sub.add_parser(
         "hash", parents=[common],
         help="Compute and cache file hashes (resumable; safe to interrupt)",
@@ -77,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Hash only files currently classified stale/unclaimed",
     )
 
+
+def _add_sweep(sub, common) -> None:
     swp = sub.add_parser(
         "sweep", parents=[common],
         help="Move deletion candidates to quarantine (dry run unless --apply)",
@@ -92,9 +125,13 @@ def main(argv: list[str] | None = None) -> int:
         "requires --apply",
     )
 
+
+def _add_restore(sub) -> None:
     rst = sub.add_parser("restore", help="Move a quarantined sweep batch back")
     rst.add_argument("batch", type=Path, help="Batch directory created by sweep")
 
+
+def _add_snapshot(sub, common) -> None:
     snp = sub.add_parser(
         "snapshot", parents=[common],
         help="Export each active source as a compact JSON whitelist that "
@@ -104,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         "--out", type=Path, default=Path("snapshots"), help="Output directory"
     )
 
+
+def _add_purge(sub) -> None:
     prg = sub.add_parser(
         "purge",
         help="Permanently delete quarantine batches older than a trust "
@@ -121,20 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Actually delete (default is a dry run)",
     )
 
-    args = parser.parse_args(argv)
-    if args.cmd == "report":
-        return _cmd_report(args)
-    if args.cmd == "hash":
-        return _cmd_hash(args)
-    if args.cmd == "sweep":
-        return _cmd_sweep(args)
-    if args.cmd == "restore":
-        return _cmd_restore(args)
-    if args.cmd == "snapshot":
-        return _cmd_snapshot(args)
-    if args.cmd == "purge":
-        return _cmd_purge(args)
-    return 2
+
+# --- source resolution ------------------------------------------------------
 
 
 @dataclass
@@ -177,195 +204,6 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
     )
 
 
-def _cmd_report(args: argparse.Namespace) -> int:
-    res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
-    if not manifests:
-        print("No manifests found.", file=sys.stderr)
-        return 1
-    files = scan(res.downloads)
-    cache = HashCache(res.cache)
-    try:
-        results = match(files, manifests, cache)
-    finally:
-        cache.close()
-    print(summarize(results, manifests))
-    if args.csv:
-        write_csv(results, args.csv)
-        print(f"\nDetail written to {args.csv}")
-    return 0
-
-
-def _cmd_hash(args: argparse.Namespace) -> int:
-    from .hashutil import hash_file
-
-    res = _resolve(args, need_manifests=args.only_candidates)
-    files = [f for f in scan(res.downloads) if not f.is_meta]
-    cache = HashCache(res.cache)
-    try:
-        if args.only_candidates:
-            from .matcher import STALE, UNCLAIMED
-
-            manifests = load_manifests(res.sources, res.exclude, res.latest_only)
-            results = match(files, manifests, cache)
-            wanted = {
-                r.disk.rel for r in results if r.status in (STALE, UNCLAIMED) and not r.sidecar
-            }
-            files = [f for f in files if f.rel in wanted]
-        pending = [f for f in files if cache.get(f) is None]
-        if args.limit:
-            pending = pending[: args.limit]
-        total_bytes = sum(f.size for f in pending)
-        print(
-            f"{len(files):,} files scanned; {len(pending):,} to hash "
-            f"({total_bytes / (1 << 30):,.1f} GB)"
-        )
-        done_bytes = 0
-        start = time.monotonic()
-        for i, disk in enumerate(pending, 1):
-            xxh64_b64, crc32 = hash_file(disk.path)
-            cache.put(disk, xxh64_b64, crc32)
-            done_bytes += disk.size
-            if i % 50 == 0 or i == len(pending):
-                elapsed = time.monotonic() - start
-                rate = done_bytes / elapsed if elapsed else 0
-                remaining = (total_bytes - done_bytes) / rate if rate else 0
-                print(
-                    f"  {i:,}/{len(pending):,} files  "
-                    f"{done_bytes / (1 << 30):,.1f}/{total_bytes / (1 << 30):,.1f} GB  "
-                    f"{rate / (1 << 20):,.0f} MB/s  ~{remaining / 60:,.0f} min left",
-                    flush=True,
-                )
-    except KeyboardInterrupt:
-        print("\nInterrupted - progress is cached; rerun to resume.")
-    finally:
-        cache.close()
-    return 0
-
-
-def _cmd_sweep(args: argparse.Namespace) -> int:
-    if args.delete and not args.apply:
-        raise SystemExit("error: --delete requires --apply")
-    res = _resolve(args)
-    quarantine = res.quarantine
-    if quarantine is None:
-        quarantine = res.downloads.parent / "_quarantine"
-    quarantine = Path(quarantine)
-    if quarantine.resolve().is_relative_to(Path(res.downloads).resolve()):
-        raise SystemExit("error: quarantine dir must not be inside the downloads dir")
-
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
-    if not manifests:
-        print("No manifests found.", file=sys.stderr)
-        return 1
-    files = scan(res.downloads)
-    cache = HashCache(res.cache)
-    try:
-        results = match(files, manifests, cache)
-        p = sweep_mod.plan(results, cache)
-    finally:
-        cache.close()
-
-    print(
-        f"Sweep plan: {len(p.ready):,} files, {p.ready_bytes / (1 << 30):,.2f} GB "
-        f"-> {quarantine}"
-    )
-    if p.refused:
-        print(
-            f"Refused (hash never checked): {len(p.refused):,} files, "
-            f"{p.refused_bytes / (1 << 30):,.2f} GB - run "
-            f"`modsweep hash --only-candidates` first"
-        )
-    if not p.ready:
-        return 0
-    largest = sorted(
-        (r for r in p.ready if not r.disk.is_meta),
-        key=lambda r: r.disk.size, reverse=True,
-    )
-    for r in largest[:10]:
-        print(f"  {r.disk.size / (1 << 30):>8.2f} GB  [{r.status}]  {r.disk.rel}")
-    if len(largest) > 10:
-        print(f"  ... and {len(largest) - 10:,} more archives (+ sidecars)")
-
-    if not args.apply:
-        print("\nDry run - nothing moved. Rerun with --apply to quarantine.")
-        return 0
-    batch = sweep_mod.execute(p, quarantine)
-    if args.delete:
-        sweep_mod.purge_batch(batch)
-        print(
-            f"\nDeleted {len(p.ready):,} files "
-            f"({p.ready_bytes / (1 << 30):,.2f} GB) - quarantined and purged "
-            f"immediately; there is no undo"
-        )
-        return 0
-    print(f"\nMoved {len(p.ready):,} files to {batch}")
-    print(f"Undo with: modsweep restore \"{batch}\"")
-    return 0
-
-
-def _cmd_restore(args: argparse.Namespace) -> int:
-    moved, skipped, missing = sweep_mod.restore(args.batch)
-    print(f"Restored {moved:,} files.")
-    if skipped:
-        print(f"{skipped:,} skipped: original path already occupied (left in quarantine).")
-    if missing:
-        print(f"{missing:,} listed in the manifest were not found in the batch.")
-    return 0
-
-
-def _cmd_purge(args: argparse.Namespace) -> int:
-    from datetime import datetime, timedelta
-
-    cfg = config.load(args.config)
-    quarantine = args.quarantine or cfg.quarantine
-    if quarantine is None:
-        raise SystemExit("error: no --quarantine given and none in config")
-    days = args.older_than if args.older_than is not None else (
-        cfg.quarantine_keep_days if cfg.quarantine_keep_days is not None else 30
-    )
-    batches = sweep_mod.list_batches(quarantine)
-    if not batches:
-        print(f"No sweep batches under {quarantine}.")
-        return 0
-    cutoff = datetime.now() - timedelta(days=days)
-    aged = [b for b in batches if b.created < cutoff]
-    for b in batches:
-        age = (datetime.now() - b.created).days
-        verdict = "purge" if b.created < cutoff else "keep"
-        print(
-            f"  [{verdict}]  {b.path.name}  {age:>4}d old  "
-            f"{b.files:,} files  {b.size / (1 << 30):,.2f} GB"
-        )
-    total = sum(b.size for b in aged)
-    print(
-        f"\n{len(aged)} of {len(batches)} batch(es) older than {days} days "
-        f"({total / (1 << 30):,.2f} GB)"
-    )
-    if not aged:
-        return 0
-    if not args.apply:
-        print("Dry run - nothing deleted. Rerun with --apply to purge.")
-        return 0
-    for b in aged:
-        sweep_mod.purge_batch(b)
-        print(f"purged {b.path}")
-    return 0
-
-
-def _cmd_snapshot(args: argparse.Namespace) -> int:
-    res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
-    if not manifests:
-        print("No manifests found.", file=sys.stderr)
-        return 1
-    for manifest in manifests:
-        path = snapshot_mod.save(manifest, args.out)
-        print(f"  {manifest.label}  ({len(manifest.entries)} entries) -> {path}")
-    print(f"\n{len(manifests)} snapshot(s) written to {args.out}")
-    return 0
-
-
 _LOADERS = {
     "wabbajack": wabbajack.load,
     "nolvus": nolvus.load,
@@ -389,44 +227,63 @@ def load_manifests(
     though they still compete as versions. Every drop or pin-save is
     announced on stderr — no silent decisions.
     """
-    exclude = exclude or []
+    manifests, pinned = _load_sources(sources, exclude or [])
+    if latest_only:
+        manifests = _apply_latest_filter(manifests, pinned)
+    return manifests
+
+
+def _load_sources(
+    sources: list[tuple[str, Path, bool]], exclude: list[str]
+) -> tuple[list[Manifest], set[str]]:
     manifests: dict[str, Manifest] = {}
     pinned: set[str] = set()
     for kind, path, pin in sources:
-        pattern = _excluded_by(path.name, exclude)
-        if pattern:
-            print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
-            continue
-        try:
-            manifest = _LOADERS[kind](path)
-        except Exception as exc:  # a bad manifest shouldn't sink the run
-            print(f"warning: skipping {path}: {exc}", file=sys.stderr)
-            continue
-        pattern = _excluded_by(manifest.label, exclude)
-        if pattern:
-            print(f"excluded ({pattern}): {manifest.label}", file=sys.stderr)
-            continue
-        if kind in ("mo2", "mo2-all") and not manifest.entries:
-            # Installs matter only when they carry custom additions.
+        manifest = _load_source(kind, path, exclude)
+        if manifest is None:
             continue
         # The same list version often exists under several Wabbajack installs;
         # keep the first copy of each label — but a pin from any copy sticks.
         manifests.setdefault(manifest.label, manifest)
         if pin:
             pinned.add(manifest.label)
-    result = list(manifests.values())
-    if latest_only:
-        from .manifest import latest_only as filter_latest
+    return list(manifests.values()), pinned
 
-        result, superseded, pinned_kept = filter_latest(result, pinned)
-        for old, winner in superseded:
-            print(f"superseded by {winner.label}: {old.label}", file=sys.stderr)
-        for m, winner in pinned_kept:
-            print(
-                f"pinned (explicit entry) despite {winner.label}: {m.label}",
-                file=sys.stderr,
-            )
-    return result
+
+def _load_source(kind: str, path: Path, exclude: list[str]) -> Manifest | None:
+    pattern = _excluded_by(path.name, exclude)
+    if pattern:
+        print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
+        return None
+    try:
+        manifest = _LOADERS[kind](path)
+    except Exception as exc:  # a bad manifest shouldn't sink the run
+        print(f"warning: skipping {path}: {exc}", file=sys.stderr)
+        return None
+    pattern = _excluded_by(manifest.label, exclude)
+    if pattern:
+        print(f"excluded ({pattern}): {manifest.label}", file=sys.stderr)
+        return None
+    if kind in ("mo2", "mo2-all") and not manifest.entries:
+        # Installs matter only when they carry custom additions.
+        return None
+    return manifest
+
+
+def _apply_latest_filter(
+    manifests: list[Manifest], pinned: set[str]
+) -> list[Manifest]:
+    from .manifest import latest_only as filter_latest
+
+    kept, superseded, pinned_kept = filter_latest(manifests, pinned)
+    for old, winner in superseded:
+        print(f"superseded by {winner.label}: {old.label}", file=sys.stderr)
+    for m, winner in pinned_kept:
+        print(
+            f"pinned (explicit entry) despite {winner.label}: {m.label}",
+            file=sys.stderr,
+        )
+    return kept
 
 
 def _excluded_by(name: str, exclude: list[str]) -> str | None:
@@ -471,16 +328,11 @@ def _expand_cli(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     out: list[tuple[str, Path, bool]] = []
     for path in paths:
         if not path.is_dir():
-            suffix = path.suffix.lower()
-            if suffix == ".wabbajack":
-                out.append(("wabbajack", path, True))
-            elif suffix == ".json":
-                kind = "snapshot" if snapshot_mod.is_snapshot(path) else "wabbajack"
-                out.append((kind, path, True))
-            elif suffix == ".xml":
-                out.append(("nolvus", path, True))
-            else:
+            kind = _infer_file_kind(path)
+            if kind is None:
                 print(f"warning: {path}: unrecognized manifest type", file=sys.stderr)
+            else:
+                out.append((kind, path, True))
             continue
         if _is_mo2_instance(path):
             out.append(("mo2", path, True))
@@ -495,12 +347,252 @@ def _expand_cli(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     return out
 
 
+def _infer_file_kind(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix == ".wabbajack":
+        return "wabbajack"
+    if suffix == ".json":
+        return "snapshot" if snapshot_mod.is_snapshot(path) else "wabbajack"
+    if suffix == ".xml":
+        return "nolvus"
+    return None
+
+
 def _is_mo2_instance(path: Path) -> bool:
     if not path.is_dir():
         return False
     return path.name.lower() == "mods" or any(
         c.is_dir() and c.name.lower() == "mods" for c in path.iterdir()
     )
+
+
+# --- commands ----------------------------------------------------------------
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    res = _resolve(args)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    if not manifests:
+        print("No manifests found.", file=sys.stderr)
+        return 1
+    files = scan(res.downloads)
+    cache = HashCache(res.cache)
+    try:
+        results = match(files, manifests, cache)
+    finally:
+        cache.close()
+    print(summarize(results, manifests))
+    if args.csv:
+        write_csv(results, args.csv)
+        print(f"\nDetail written to {args.csv}")
+    return 0
+
+
+def _cmd_hash(args: argparse.Namespace) -> int:
+    res = _resolve(args, need_manifests=args.only_candidates)
+    files = [f for f in scan(res.downloads) if not f.is_meta]
+    cache = HashCache(res.cache)
+    try:
+        if args.only_candidates:
+            files = _candidate_files(files, res, cache)
+        pending = [f for f in files if cache.get(f) is None]
+        if args.limit:
+            pending = pending[: args.limit]
+        total_bytes = sum(f.size for f in pending)
+        print(
+            f"{len(files):,} files scanned; {len(pending):,} to hash "
+            f"({total_bytes / (1 << 30):,.1f} GB)"
+        )
+        _hash_files(pending, total_bytes, cache)
+    except KeyboardInterrupt:
+        print("\nInterrupted - progress is cached; rerun to resume.")
+    finally:
+        cache.close()
+    return 0
+
+
+def _candidate_files(
+    files: list[DiskFile], res: Resolved, cache: HashCache
+) -> list[DiskFile]:
+    from .matcher import STALE, UNCLAIMED
+
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    results = match(files, manifests, cache)
+    wanted = {
+        r.disk.rel for r in results if r.status in (STALE, UNCLAIMED) and not r.sidecar
+    }
+    return [f for f in files if f.rel in wanted]
+
+
+def _hash_files(pending: list[DiskFile], total_bytes: int, cache: HashCache) -> None:
+    from .hashutil import hash_file
+
+    done_bytes = 0
+    start = time.monotonic()
+    for i, disk in enumerate(pending, 1):
+        xxh64_b64, crc32 = hash_file(disk.path)
+        cache.put(disk, xxh64_b64, crc32)
+        done_bytes += disk.size
+        if i % 50 == 0 or i == len(pending):
+            elapsed = time.monotonic() - start
+            rate = done_bytes / elapsed if elapsed else 0
+            remaining = (total_bytes - done_bytes) / rate if rate else 0
+            print(
+                f"  {i:,}/{len(pending):,} files  "
+                f"{done_bytes / (1 << 30):,.1f}/{total_bytes / (1 << 30):,.1f} GB  "
+                f"{rate / (1 << 20):,.0f} MB/s  ~{remaining / 60:,.0f} min left",
+                flush=True,
+            )
+
+
+def _cmd_sweep(args: argparse.Namespace) -> int:
+    if args.delete and not args.apply:
+        raise SystemExit("error: --delete requires --apply")
+    res = _resolve(args)
+    quarantine = _quarantine_dir(res)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    if not manifests:
+        print("No manifests found.", file=sys.stderr)
+        return 1
+    plan = _build_plan(res, manifests)
+    _print_plan(plan, quarantine)
+    if not plan.ready:
+        return 0
+    if not args.apply:
+        print("\nDry run - nothing moved. Rerun with --apply to quarantine.")
+        return 0
+    return _apply_sweep(plan, quarantine, delete=args.delete)
+
+
+def _quarantine_dir(res: Resolved) -> Path:
+    quarantine = res.quarantine
+    if quarantine is None:
+        quarantine = res.downloads.parent / "_quarantine"
+    quarantine = Path(quarantine)
+    if quarantine.resolve().is_relative_to(Path(res.downloads).resolve()):
+        raise SystemExit("error: quarantine dir must not be inside the downloads dir")
+    return quarantine
+
+
+def _build_plan(res: Resolved, manifests: list[Manifest]) -> sweep_mod.Plan:
+    files = scan(res.downloads)
+    cache = HashCache(res.cache)
+    try:
+        results = match(files, manifests, cache)
+        return sweep_mod.plan(results, cache)
+    finally:
+        cache.close()
+
+
+def _print_plan(p: sweep_mod.Plan, quarantine: Path) -> None:
+    print(
+        f"Sweep plan: {len(p.ready):,} files, {p.ready_bytes / (1 << 30):,.2f} GB "
+        f"-> {quarantine}"
+    )
+    if p.refused:
+        print(
+            f"Refused (hash never checked): {len(p.refused):,} files, "
+            f"{p.refused_bytes / (1 << 30):,.2f} GB - run "
+            f"`modsweep hash --only-candidates` first"
+        )
+    largest = sorted(
+        (r for r in p.ready if not r.disk.is_meta),
+        key=lambda r: r.disk.size, reverse=True,
+    )
+    for r in largest[:10]:
+        print(f"  {r.disk.size / (1 << 30):>8.2f} GB  [{r.status}]  {r.disk.rel}")
+    if len(largest) > 10:
+        print(f"  ... and {len(largest) - 10:,} more archives (+ sidecars)")
+
+
+def _apply_sweep(p: sweep_mod.Plan, quarantine: Path, delete: bool) -> int:
+    batch = sweep_mod.execute(p, quarantine)
+    if delete:
+        sweep_mod.purge_batch(batch)
+        print(
+            f"\nDeleted {len(p.ready):,} files "
+            f"({p.ready_bytes / (1 << 30):,.2f} GB) - quarantined and purged "
+            f"immediately; there is no undo"
+        )
+        return 0
+    print(f"\nMoved {len(p.ready):,} files to {batch}")
+    print(f"Undo with: modsweep restore \"{batch}\"")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    moved, skipped, missing = sweep_mod.restore(args.batch)
+    print(f"Restored {moved:,} files.")
+    if skipped:
+        print(f"{skipped:,} skipped: original path already occupied (left in quarantine).")
+    if missing:
+        print(f"{missing:,} listed in the manifest were not found in the batch.")
+    return 0
+
+
+def _cmd_snapshot(args: argparse.Namespace) -> int:
+    res = _resolve(args)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    if not manifests:
+        print("No manifests found.", file=sys.stderr)
+        return 1
+    for manifest in manifests:
+        path = snapshot_mod.save(manifest, args.out)
+        print(f"  {manifest.label}  ({len(manifest.entries)} entries) -> {path}")
+    print(f"\n{len(manifests)} snapshot(s) written to {args.out}")
+    return 0
+
+
+def _cmd_purge(args: argparse.Namespace) -> int:
+    from datetime import datetime, timedelta
+
+    cfg = config.load(args.config)
+    quarantine = args.quarantine or cfg.quarantine
+    if quarantine is None:
+        raise SystemExit("error: no --quarantine given and none in config")
+    days = _purge_threshold(args, cfg)
+    batches = sweep_mod.list_batches(quarantine)
+    if not batches:
+        print(f"No sweep batches under {quarantine}.")
+        return 0
+    cutoff = datetime.now() - timedelta(days=days)
+    aged = _print_batch_verdicts(batches, cutoff, days)
+    if not aged:
+        return 0
+    if not args.apply:
+        print("Dry run - nothing deleted. Rerun with --apply to purge.")
+        return 0
+    for b in aged:
+        sweep_mod.purge_batch(b)
+        print(f"purged {b.path}")
+    return 0
+
+
+def _purge_threshold(args: argparse.Namespace, cfg: config.Config) -> int:
+    if args.older_than is not None:
+        return args.older_than
+    if cfg.quarantine_keep_days is not None:
+        return cfg.quarantine_keep_days
+    return 30
+
+
+def _print_batch_verdicts(batches, cutoff, days: int) -> list[sweep_mod.Batch]:
+    from datetime import datetime
+
+    aged = [b for b in batches if b.created < cutoff]
+    for b in batches:
+        age = (datetime.now() - b.created).days
+        verdict = "purge" if b.created < cutoff else "keep"
+        print(
+            f"  [{verdict}]  {b.path.name}  {age:>4}d old  "
+            f"{b.files:,} files  {b.size / (1 << 30):,.2f} GB"
+        )
+    total = sum(b.size for b in aged)
+    print(
+        f"\n{len(aged)} of {len(batches)} batch(es) older than {days} days "
+        f"({total / (1 << 30):,.2f} GB)"
+    )
+    return aged
 
 
 if __name__ == "__main__":
