@@ -5,23 +5,25 @@ clone with `uv sync --extra gui` done.
 
 ## Cutting a release
 
-1. Bump the version in **both** places: `pyproject.toml` (`version`) and
+1. Add the release section to `CHANGELOG.md` (Keep a Changelog format;
+   include the compare link at the bottom).
+2. Bump the version in **both** places: `pyproject.toml` (`version`) and
    `src/modsweep/__init__.py` (`__version__`). Run `uv lock` to refresh the
    lockfile, then the full gate - `uv run pytest`, `uvx ruff check`,
    `uv run pyright` - and commit.
-2. Tag and push:
+3. Tag and push:
    ```
    git tag -a vX.Y.Z -m "release notes"
    git push origin main vX.Y.Z
    ```
-3. The tag triggers `.github/workflows/release.yml`:
+4. The tag triggers `.github/workflows/release.yml`:
    - builds sdist + wheel and publishes to PyPI via **trusted publishing**
      (registered publisher: repo `zspatter/mod-sweep`, workflow
      `release.yml`, environment `pypi` - no tokens anywhere);
    - builds the console `modsweep` + windowed `modsweep-gui` executables on
      Windows/Linux/macOS, smoke-tests each frozen CLI (including bundled
      manifest resolution), and attaches the archives to the GitHub release.
-4. Verify: the PyPI page shows the new version; `uv tool upgrade modsweep`
+5. Verify: the PyPI page shows the new version; `uv tool upgrade modsweep`
    works; release assets download. Then update NexusMods (below).
 
 PyPI metadata (author, description, README) is immutable per release -
