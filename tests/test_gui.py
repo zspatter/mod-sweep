@@ -10,7 +10,7 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from helpers import make_wabbajack, wj_hash
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from modsweep import gui as gui_mod
 from modsweep import sweep as sweep_mod
@@ -932,3 +932,71 @@ def test_actions_refuse_without_downloads_dir(tmp_path):
     win.run_report()
     assert win._worker is before  # no worker started
     assert "no downloads directory configured" in win.console.toPlainText()
+
+
+def test_sweep_apply_declined_confirmation_does_nothing(tmp_path, monkeypatch):
+    app()
+    win = swept_window(tmp_path)
+    before = win._worker
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+    win.run_sweep(apply=True)
+    assert win._worker is before  # declined: no worker started
+    assert (tmp_path / "downloads" / "junk.7z").exists()
+
+
+def test_pick_batch_reports_empty_quarantine(tmp_path, monkeypatch):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    seen = []
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        staticmethod(lambda parent, title, text, *a, **k: seen.append(text)),
+    )
+    win.run_restore()  # no batch given: the picker finds nothing to offer
+    assert any("quarantine is empty" in s for s in seen)
+
+
+def test_pick_batch_selection_flows_into_restore(tmp_path, monkeypatch):
+    app()
+    win = swept_window(tmp_path)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.run_sweep(apply=True)
+    wait_idle(win)
+    wait_idle(win)  # chained report
+    assert not (tmp_path / "downloads" / "junk.7z").exists()
+
+    # The picker defaults to the newest batch; accept it.
+    monkeypatch.setattr(
+        QInputDialog, "getItem",
+        staticmethod(lambda parent, title, label, items, current, editable: (
+            items[current], True
+        )),
+    )
+    win.run_restore()
+    wait_idle(win)
+    assert (tmp_path / "downloads" / "junk.7z").exists()
+
+
+def test_open_config_switches_active_config(tmp_path, monkeypatch):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    other = build_config(other_dir)
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(other), "")),
+    )
+    win.open_config()
+    wait_idle(win)  # sources refresh against the new config
+    assert win.config_path == other
+    assert str(other) in win.status_config.text()

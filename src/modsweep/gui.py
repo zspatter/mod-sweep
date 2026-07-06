@@ -793,7 +793,7 @@ class MainWindow(QMainWindow):
             f"config: {shown}   downloads: {self.cfg.downloads or '<unset>'}"
         )
 
-    def open_config(self) -> None:  # pragma: no cover - native dialog
+    def open_config(self) -> None:
         chosen, _ = QFileDialog.getOpenFileName(
             self, "Open Mod Sweep config", "", "TOML (*.toml)"
         )
@@ -931,7 +931,7 @@ class MainWindow(QMainWindow):
         downloads = self._require_downloads()
         if downloads is None:
             return
-        if apply:  # pragma: no cover - native dialog
+        if apply:
             answer = QMessageBox.question(
                 self,
                 "Apply sweep?",
@@ -982,7 +982,7 @@ class MainWindow(QMainWindow):
     def run_restore(self, batch: Path | None = None) -> None:
         if self._require_downloads() is None:
             return
-        if batch is None:  # pragma: no cover - native dialog
+        if batch is None:
             batch = self._pick_batch("Restore which quarantine batch?")
             if batch is None:
                 return
@@ -1194,7 +1194,7 @@ class MainWindow(QMainWindow):
             f"age-based purge; this button purges whatever you pick.)"
         )
 
-    def _pick_batch(self, title: str) -> Path | None:  # pragma: no cover - dialog
+    def _pick_batch(self, title: str) -> Path | None:
         batches = self._quarantine_batches()
         if not batches:
             QMessageBox.information(self, "No batches", "The quarantine is empty.")
