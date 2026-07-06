@@ -205,8 +205,14 @@ class MainWindow(QMainWindow):
             bar.addWidget(button)
         bar.addStretch()
 
+        sources_pane = QWidget()
+        sources_layout = QVBoxLayout(sources_pane)
+        sources_layout.setContentsMargins(0, 0, 0, 0)
+        sources_layout.addWidget(QLabel("<b>Active sources</b>"))
+        sources_layout.addWidget(self.sources_list)
+
         splitter = QSplitter()
-        splitter.addWidget(self.sources_list)
+        splitter.addWidget(sources_pane)
         splitter.addWidget(self.tabs)
         splitter.setStretchFactor(1, 3)
 
@@ -283,9 +289,9 @@ class MainWindow(QMainWindow):
         report_layout = QVBoxLayout(report_tab)
         report_layout.addWidget(self.summary_label)
         report_layout.addWidget(self.status_table, 2)
-        report_layout.addWidget(QLabel("Disk archives claimed per source:"))
+        report_layout.addWidget(QLabel("<b>Disk archives claimed per source</b>"))
         report_layout.addWidget(self.claims_table, 4)
-        report_layout.addWidget(QLabel("Deletion candidates:"))
+        report_layout.addWidget(QLabel("<b>Deletion candidates</b>"))
         report_layout.addWidget(self.candidates_table, 4)
 
         self.console = QPlainTextEdit()
@@ -620,9 +626,9 @@ class MainWindow(QMainWindow):
         total_files = len(results)
         total_bytes = sum(r.disk.size for r in results)
         self.summary_label.setText(
-            f"{total_files:,} files / {_gb(total_bytes)} across "
-            f"{len(manifests)} sources   |   potential reclaim: "
-            f"{_gb(reclaim_bytes(results))}"
+            f"<b>{total_files:,}</b> files / <b>{_gb(total_bytes)}</b> across "
+            f"<b>{len(manifests)}</b> sources &nbsp;|&nbsp; potential reclaim: "
+            f"<b>{_gb(reclaim_bytes(results))}</b>"
         )
         self._fill(
             self.status_table,

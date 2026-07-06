@@ -169,4 +169,27 @@ def restore(batch: Path) -> tuple[int, int, int]:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(src), str(dest))
         moved += 1
+    _tidy_batch(batch)
     return moved, skipped, missing
+
+
+def _tidy_batch(batch: Path) -> None:
+    """Prune what a restore leaves behind.
+
+    Emptied subdirectories (e.g. Nolvus category folders) are removed, and
+    once nothing but the manifest remains the whole batch dir goes - a fully
+    restored batch should not reappear in batch listings as a husk.
+    """
+    directories = sorted(
+        (p for p in batch.rglob("*") if p.is_dir()),
+        key=lambda p: len(p.parts),
+        reverse=True,
+    )
+    for directory in directories:
+        try:
+            directory.rmdir()  # only succeeds when empty
+        except OSError:
+            pass
+    remaining = [p for p in batch.rglob("*") if p.is_file()]
+    if all(p.name == MANIFEST_NAME for p in remaining):
+        shutil.rmtree(batch)

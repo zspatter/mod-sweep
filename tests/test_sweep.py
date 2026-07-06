@@ -64,6 +64,9 @@ def test_execute_and_restore_roundtrip(tmp_path):
     assert (dl / "old.7z").exists()
     assert (dl / "old.7z.meta").exists()
     assert (dl / "sub" / "junk.zip").exists()
+    # A fully restored batch leaves no husk behind (manifest + empty dirs).
+    assert not batch.exists()
+    assert sweep_mod.list_batches(tmp_path / "quarantine") == []
 
 
 def test_list_batches_only_counts_real_batches(tmp_path):
@@ -135,3 +138,5 @@ def test_restore_refuses_to_overwrite(tmp_path):
     assert (moved, skipped, missing) == (2, 1, 0)
     assert (dl / "old.7z").read_bytes() == b"NEW CONTENT"
     assert (batch / "old.7z").exists()  # left in quarantine, not lost
+    assert batch.exists()  # batch survives while it still holds real files
+    assert (batch / sweep_mod.MANIFEST_NAME).exists()  # still restorable later

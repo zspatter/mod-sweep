@@ -282,3 +282,9 @@ on Windows/Linux/macOS × Python 3.12/3.14.
   and would actively hurt on HDDs.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.
+- Manifest distribution: this repo *owns* the bundled Nolvus manifests, so
+  installed/packaged copies (wheel, exe) must carry them too — move
+  `manifests/nolvus/` into package data resolvable via importlib.resources
+  (e.g. a `bundled` keyword in the `nolvus` config key). New guide releases
+  then ship as app updates; consider a lightweight online manifest index
+  (fetch from this repo) so manifest bumps do not require binary releases.
