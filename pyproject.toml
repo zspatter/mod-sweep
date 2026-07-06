@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modsweep"
-version = "0.2.1"
+version = "0.2.2"
 description = "Whitelist-driven cleanup for shared Skyrim modlist archive directories (Wabbajack + Nolvus)"
 readme = "README.md"
 license = "MIT"
