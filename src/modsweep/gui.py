@@ -647,15 +647,24 @@ class MainWindow(QMainWindow):
     def _load_active(self, worker: Worker) -> list[Manifest]:
         """Resolve sources (parsing manifests is the slow part - workers only)."""
         manifests = load_manifests(
-            config_sources(self.cfg), self.cfg.exclude, self.cfg.latest_only
+            config_sources(self.cfg),
+            self.cfg.exclude,
+            self.cfg.latest_only,
+            self._parse_cache_dir(),
         )
         self._check_drift(worker, manifests)
         return manifests
 
+    def _parse_cache_dir(self) -> Path:
+        return self._cache_path().parent / "manifest_cache"
+
     def refresh_sources(self) -> None:
         def action(worker: Worker) -> None:
             infos = survey_sources(
-                config_sources(self.cfg), self.cfg.exclude, self.cfg.latest_only
+                config_sources(self.cfg),
+                self.cfg.exclude,
+                self.cfg.latest_only,
+                self._parse_cache_dir(),
             )
             actives = [
                 i.manifest for i in infos if i.state in ("active", "pinned")

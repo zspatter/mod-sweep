@@ -170,6 +170,12 @@ def test_log_level_debug_emits_diagnostics(tmp_path, capsys):
     assert "scanned" in err and "matched" in err
     assert "loaded List 1.0 (wabbajack)" in err
 
+    # The second run parses nothing: the manifest cache serves it.
+    assert main(["report", *args, "--log-level", "debug"]) == 0
+    err = capsys.readouterr().err
+    assert "manifest cache hit" in err
+    assert "loaded List 1.0 (wabbajack)" not in err
+
     capsys.readouterr()
     assert main(["report", *args]) == 0  # default: diagnostics stay quiet
     assert "scanned" not in capsys.readouterr().err

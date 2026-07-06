@@ -15,7 +15,16 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config, mo2, nolvus, snapshot as snapshot_mod, state, sweep as sweep_mod, wabbajack
+from . import (
+    config,
+    manifest_cache,
+    mo2,
+    nolvus,
+    snapshot as snapshot_mod,
+    state,
+    sweep as sweep_mod,
+    wabbajack,
+)
 from .cache import HashCache
 from .manifest import Manifest
 from .matcher import match
@@ -229,6 +238,7 @@ def load_manifests(
     sources: list[tuple[str, Path, bool]],
     exclude: list[str] | None = None,
     latest_only: bool = False,
+    parse_cache: Path | None = None,
 ) -> list[Manifest]:
     """Resolve sources to active manifests (see README "Source resolution").
 
@@ -240,7 +250,7 @@ def load_manifests(
     announced on stderr — no silent decisions.
     """
     start = time.perf_counter()
-    manifests, pinned = _load_sources(sources, exclude or [])
+    manifests, pinned = _load_sources(sources, exclude or [], parse_cache)
     if latest_only:
         manifests = _apply_latest_filter(manifests, pinned)
     log.info(
@@ -251,12 +261,14 @@ def load_manifests(
 
 
 def _load_sources(
-    sources: list[tuple[str, Path, bool]], exclude: list[str]
+    sources: list[tuple[str, Path, bool]],
+    exclude: list[str],
+    parse_cache: Path | None = None,
 ) -> tuple[list[Manifest], set[str]]:
     manifests: dict[str, Manifest] = {}
     pinned: set[str] = set()
     for kind, path, pin in sources:
-        manifest = _load_source(kind, path, exclude)
+        manifest = _load_source(kind, path, exclude, parse_cache)
         if manifest is None:
             continue
         # The same list version often exists under several Wabbajack installs;
@@ -267,21 +279,31 @@ def _load_sources(
     return list(manifests.values()), pinned
 
 
-def _load_source(kind: str, path: Path, exclude: list[str]) -> Manifest | None:
+_PARSE_CACHEABLE = ("wabbajack", "nolvus", "snapshot")
+
+
+def _load_source(
+    kind: str, path: Path, exclude: list[str], parse_cache: Path | None = None
+) -> Manifest | None:
     pattern = _excluded_by(path.name, exclude)
     if pattern:
         print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
         return None
-    start = time.perf_counter()
-    try:
-        manifest = _LOADERS[kind](path)
-    except Exception as exc:  # a bad manifest shouldn't sink the run
-        print(f"warning: skipping {path}: {exc}", file=sys.stderr)
-        return None
-    log.debug(
-        "loaded %s (%s): %d entries in %.2fs",
-        manifest.label, kind, len(manifest.entries), time.perf_counter() - start,
-    )
+    cacheable = parse_cache is not None and kind in _PARSE_CACHEABLE
+    manifest = manifest_cache.load(parse_cache, path, kind) if cacheable else None
+    if manifest is None:
+        start = time.perf_counter()
+        try:
+            manifest = _LOADERS[kind](path)
+        except Exception as exc:  # a bad manifest shouldn't sink the run
+            print(f"warning: skipping {path}: {exc}", file=sys.stderr)
+            return None
+        log.debug(
+            "loaded %s (%s): %d entries in %.2fs",
+            manifest.label, kind, len(manifest.entries), time.perf_counter() - start,
+        )
+        if cacheable:
+            manifest_cache.store(parse_cache, path, kind, manifest)
     pattern = _excluded_by(manifest.label, exclude)
     if pattern:
         print(f"excluded ({pattern}): {manifest.label}", file=sys.stderr)
@@ -342,12 +364,13 @@ def survey_sources(
     sources: list[tuple[str, Path, bool]],
     exclude: list[str] | None = None,
     latest_only: bool = False,
+    parse_cache: Path | None = None,
 ) -> list[SourceInfo]:
     """Resolve like load_manifests but drop nothing: every parseable source
     comes back tagged, so a UI can offer reinstatement of excluded or
     superseded lists. Emits no announcements (the tags carry the story)."""
     exclude = exclude or []
-    manifests, pinned = _load_sources(sources, [])
+    manifests, pinned = _load_sources(sources, [], parse_cache)
     flags: dict[str, tuple[str, str]] = {}
     for m in manifests:
         pattern = _excluded_by(m.label, exclude) or _excluded_by(
@@ -489,7 +512,9 @@ def _check_source_drift(res: Resolved, manifests: list[Manifest]) -> None:
 
 def _cmd_report(args: argparse.Namespace) -> int:
     res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    manifests = load_manifests(
+        res.sources, res.exclude, res.latest_only, res.cache.parent / "manifest_cache"
+    )
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
@@ -535,7 +560,9 @@ def _candidate_files(
 ) -> list[DiskFile]:
     from .matcher import STALE, UNCLAIMED
 
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    manifests = load_manifests(
+        res.sources, res.exclude, res.latest_only, res.cache.parent / "manifest_cache"
+    )
     results = match(files, manifests, cache)
     wanted = {
         r.disk.rel for r in results if r.status in (STALE, UNCLAIMED) and not r.sidecar
@@ -569,7 +596,9 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
         raise SystemExit("error: --delete requires --apply")
     res = _resolve(args)
     quarantine = _quarantine_dir_for(res.downloads, res.quarantine)
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    manifests = load_manifests(
+        res.sources, res.exclude, res.latest_only, res.cache.parent / "manifest_cache"
+    )
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
@@ -651,7 +680,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
     res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
+    manifests = load_manifests(
+        res.sources, res.exclude, res.latest_only, res.cache.parent / "manifest_cache"
+    )
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
