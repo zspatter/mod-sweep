@@ -238,11 +238,16 @@ checkable list — active and pinned sources are ticked; excluded and
 superseded ones stay visible but unticked, each explaining itself on hover.
 Untick lists to retire them (All/None for bulk) and Apply Selection writes
 exact-label excludes to the config for you; ticking an excluded list
-reinstates it. Locked entries say why inline — italic with a
-"locked by latest_only" / "excluded by '<glob>'" suffix — and their
-tooltips explain the way out. Right-clicking a source offers the same moves
-directly: pin a superseded version (writes the explicit config entry for
-you), retire or reinstate a list, and open the manifest's location.
+reinstates it. Explicit decisions carry icons — a pin for explicitly-named
+sources, a ban sign for exclusions, a padlock for versions locked by
+latest-only — and locked entries also say why inline (italic suffix), with
+tooltips explaining the way out. Superseded versions are hidden by default
+behind a "Show superseded (N)" toggle, so a growing manifest bundle (the
+in-repo Nolvus manifests gain a file per guide release) collapses to its
+newest version instead of flooding the list. Right-clicking a source offers
+the moves its state allows: pin a version — superseded to rescue it, or
+active to protect it from future filters — unpin, retire or reinstate a
+list, and open the manifest's location.
 A Snapshot... button exports the active sources' durable whitelists to a
 chosen folder. Action results pop up as dialogs in addition to the status
 bar and Log, so outcomes are unmissable. Edit Config...

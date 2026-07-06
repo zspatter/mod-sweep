@@ -13,6 +13,7 @@ Requires the `gui` extra: `uv sync --extra gui`, then `modsweep-gui
 
 from __future__ import annotations
 
+import functools
 import io
 import logging
 import subprocess
@@ -224,6 +225,53 @@ def _app_icon() -> QIcon:
         painter.drawLine(*start, *end)
     painter.end()
     return QIcon(pixmap)
+
+
+def _paint_icon(draw) -> QIcon:
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    draw(painter)
+    painter.end()
+    return QIcon(pixmap)
+
+
+@functools.cache
+def _pin_icon() -> QIcon:
+    def draw(p: QPainter) -> None:
+        p.setPen(QPen(QColor("#8a5a2b"), 3, Qt.PenStyle.SolidLine,
+                      Qt.PenCapStyle.RoundCap))
+        p.drawLine(16, 16, 7, 27)  # needle
+        p.setPen(QPen(QColor("#7a6210"), 2))
+        p.setBrush(QBrush(QColor("#e3b341")))
+        p.drawEllipse(14, 4, 13, 13)  # head
+
+    return _paint_icon(draw)
+
+
+@functools.cache
+def _ban_icon() -> QIcon:
+    def draw(p: QPainter) -> None:
+        p.setPen(QPen(QColor("#c0392b"), 3))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(5, 5, 22, 22)
+        p.drawLine(9, 23, 23, 9)
+
+    return _paint_icon(draw)
+
+
+@functools.cache
+def _lock_icon() -> QIcon:
+    def draw(p: QPainter) -> None:
+        p.setPen(QPen(QColor("#8c8c8c"), 3))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(9, 3, 14, 16, 0, 180 * 16)  # shackle
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#9a9a9a")))
+        p.drawRoundedRect(7, 13, 18, 14, 3, 3)  # body
+
+    return _paint_icon(draw)
 
 
 class NumericItem(QTableWidgetItem):
@@ -494,6 +542,7 @@ class MainWindow(QMainWindow):
         self.sources_list.customContextMenuRequested.connect(self._sources_menu)
         self._suppress_source_signal = False
         self._last_infos: dict[str, SourceInfo] = {}
+        self._all_infos: list[SourceInfo] = []
 
         self._build_buttons()
         self._build_tabs()
@@ -510,6 +559,13 @@ class MainWindow(QMainWindow):
 
         self.select_all_btn = QPushButton("All")
         self.select_none_btn = QPushButton("None")
+        self.show_superseded = QCheckBox("Show superseded")
+        self.show_superseded.setToolTip(
+            "Versions locked out by latest_only are hidden to keep this "
+            "list short (the bundled Nolvus manifests grow with every guide "
+            "release). Show them to pin an older version."
+        )
+        self.show_superseded.toggled.connect(lambda _: self._render_sources())
         self.apply_selection_btn = QPushButton("Apply Selection")
         self.select_all_btn.setToolTip("Check every selectable source")
         self.select_none_btn.setToolTip("Uncheck every selectable source")
@@ -525,6 +581,7 @@ class MainWindow(QMainWindow):
         selection_bar = QHBoxLayout()
         selection_bar.addWidget(self.select_all_btn)
         selection_bar.addWidget(self.select_none_btn)
+        selection_bar.addWidget(self.show_superseded)
         selection_bar.addStretch()
         selection_bar.addWidget(self.apply_selection_btn)
 
@@ -1028,50 +1085,62 @@ class MainWindow(QMainWindow):
             self._show_report(manifests, results)
 
     def _show_sources(self, infos: list[SourceInfo]) -> None:
+        self._all_infos = infos
         self._last_infos = {i.manifest.label: i for i in infos}
+        self._render_sources()
+
+    def _render_sources(self) -> None:
+        hidden = sum(1 for i in self._all_infos if i.state == "superseded")
+        self.show_superseded.setText(f"Show superseded ({hidden})")
+        visible = [
+            i for i in self._all_infos
+            if i.state != "superseded" or self.show_superseded.isChecked()
+        ]
         self._suppress_source_signal = True
         self.sources_list.clear()
-        for info in infos:
-            m = info.manifest
-            item = QListWidgetItem(f"{m.label}  ({len(m.entries)} entries)")
-            item.setData(Qt.ItemDataRole.UserRole, (m.label, info.state, info.detail))
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            if info.state in ("active", "pinned"):
-                item.setCheckState(Qt.CheckState.Checked)
-                if info.state == "pinned":
-                    reason = (
-                        f"kept despite {info.detail}"
-                        if info.detail
-                        else "never dropped by latest_only"
-                    )
-                    item.setToolTip(
-                        f"Pinned: named explicitly in the config - {reason}"
-                    )
-                else:
-                    item.setToolTip("Active - untick to retire this list")
-            elif info.state == "excluded":
-                item.setCheckState(Qt.CheckState.Unchecked)
-                if is_exact_exclude(info.detail, m.label):
-                    item.setToolTip("Excluded - tick to reinstate")
-                else:
-                    self._lock_item(item, f"excluded by '{info.detail}'")
-                    item.setToolTip(
-                        f"Excluded by the pattern '{info.detail}' - manage "
-                        f"it under Edit Config > Exclude"
-                    )
-            else:  # superseded by latest-only
-                item.setCheckState(Qt.CheckState.Unchecked)
-                self._lock_item(item, "locked by latest_only")
-                item.setToolTip(
-                    f"latest_only is locking this version out: {info.detail} "
-                    f"supersedes it. To keep this version anyway, add its "
-                    f"manifest file explicitly under Edit Config (any tab's "
-                    f"Add File...) - explicitly named files are pinned and "
-                    f"survive the filter."
-                )
-            self.sources_list.addItem(item)
+        for info in visible:
+            self.sources_list.addItem(self._source_item(info))
         self._suppress_source_signal = False
         self.apply_selection_btn.setEnabled(False)
+
+    def _source_item(self, info: SourceInfo) -> QListWidgetItem:
+        m = info.manifest
+        item = QListWidgetItem(f"{m.label}  ({len(m.entries)} entries)")
+        item.setData(Qt.ItemDataRole.UserRole, (m.label, info.state, info.detail))
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        if info.state in ("active", "pinned"):
+            item.setCheckState(Qt.CheckState.Checked)
+            if info.state == "pinned":
+                item.setIcon(_pin_icon())
+                reason = (
+                    f"kept despite {info.detail}"
+                    if info.detail
+                    else "never dropped by latest_only"
+                )
+                item.setToolTip(f"Pinned: named explicitly in the config - {reason}")
+            else:
+                item.setToolTip("Active - untick to retire this list")
+        elif info.state == "excluded":
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setIcon(_ban_icon())
+            if is_exact_exclude(info.detail, m.label):
+                item.setToolTip("Excluded - tick to reinstate")
+            else:
+                self._lock_item(item, f"excluded by '{info.detail}'")
+                item.setToolTip(
+                    f"Excluded by the pattern '{info.detail}' - manage "
+                    f"it under Edit Config > Exclude"
+                )
+        else:  # superseded by latest-only
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setIcon(_lock_icon())
+            self._lock_item(item, "locked by latest_only")
+            item.setToolTip(
+                f"latest_only is locking this version out: {info.detail} "
+                f"supersedes it. Right-click to pin this version - pinned "
+                f"files survive the filter."
+            )
+        return item
 
     @staticmethod
     def _lock_item(item: QListWidgetItem, reason: str) -> None:
@@ -1108,6 +1177,10 @@ class MainWindow(QMainWindow):
                 "Pin this version (survives latest_only)",
                 lambda: self.pin_source(label),
             )
+        if source_state == "pinned" and pinnable:
+            menu.addAction(
+                "Unpin (remove explicit entry)", lambda: self.unpin_source(label)
+            )
         if source_state in ("active", "pinned"):
             menu.addAction(
                 "Retire this list (exclude)", lambda: self.retire_source(label)
@@ -1141,6 +1214,23 @@ class MainWindow(QMainWindow):
             self._on_status(f"{label} is already pinned.")
             return
         self.apply_config(replace(self.cfg, **{key: values + [path]}))
+
+    def unpin_source(self, label: str) -> None:
+        """Remove the explicit config entry; the source stays only if a
+        directory walk still finds it (and latest_only may then drop it)."""
+        info = self._last_infos.get(label)
+        if info is None:
+            self._on_status(f"error: {label} is not in the current source list")
+            return
+        path = info.manifest.source_path
+        key = self._PIN_KEYS.get(_infer_file_kind(path) or "")
+        values = getattr(self.cfg, key) if key else []
+        if key is None or path not in values:
+            self._on_status(f"{label} is not pinned by an explicit entry.")
+            return
+        self.apply_config(
+            replace(self.cfg, **{key: [v for v in values if v != path]})
+        )
 
     def retire_source(self, label: str) -> None:
         if any(is_exact_exclude(e, label) for e in self.cfg.exclude):

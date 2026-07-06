@@ -331,11 +331,18 @@ def test_latest_only_locks_superseded_with_visible_hint(tmp_path):
     app()
     win = window(cfg)
     wait_idle(win)
+    # Superseded versions hide by default: a growing manifest bundle must
+    # not drown the list. The toggle carries the hidden count.
+    assert win.show_superseded.text() == "Show superseded (1)"
+    with pytest.raises(AssertionError):
+        find_item(win, "X 1.0")
+    win.show_superseded.setChecked(True)
     item = find_item(win, "X 1.0")
     assert "locked by latest_only" in item.text()  # visible without hovering
     assert item.font().italic()
     assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
-    assert "pinned" in item.toolTip()  # the hover hint explains the way out
+    assert not item.icon().isNull()  # lock icon
+    assert "pin" in item.toolTip().lower()  # the hover hint explains the way out
     assert find_item(win, "X 2.0").checkState() == Qt.CheckState.Checked
 
 
@@ -400,17 +407,25 @@ def test_pin_source_adds_explicit_entry_and_unlocks(tmp_path):
     app()
     win = window(latest_only_folder_config(tmp_path))
     wait_idle(win)
+    win.show_superseded.setChecked(True)
     assert "locked by latest_only" in find_item(win, "X 1.0").text()
 
-    win.pin_source("X 1.0")
+    win.pin_source("X 1.0")  # works even while the item is hidden
     wait_idle(win)  # save + refresh
     assert tmp_path / "old.wabbajack" in config.load(tmp_path / "modsweep.toml").wabbajack
     item = find_item(win, "X 1.0")
     assert item.checkState() == Qt.CheckState.Checked
+    assert not item.icon().isNull()  # pin icon: visible without hovering
     assert "Pinned" in item.toolTip()
 
     win.pin_source("X 1.0")  # idempotent
     assert "already pinned" in win.console.toPlainText()
+
+    win.unpin_source("X 1.0")  # back to superseded (and hidden by default)
+    wait_idle(win)
+    assert tmp_path / "old.wabbajack" not in config.load(tmp_path / "modsweep.toml").wabbajack
+    win.show_superseded.setChecked(True)
+    assert "locked by latest_only" in find_item(win, "X 1.0").text()
 
 
 def test_retire_and_reinstate_via_context_actions(tmp_path):
@@ -424,7 +439,9 @@ def test_retire_and_reinstate_via_context_actions(tmp_path):
     win.retire_source("B 1.0")
     wait_idle(win)
     assert config.load(tmp_path / "modsweep.toml").exclude == ["B 1.0"]
-    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Unchecked
+    retired = find_item(win, "B 1.0")
+    assert retired.checkState() == Qt.CheckState.Unchecked
+    assert not retired.icon().isNull()  # ban icon marks the exclusion
 
     win.reinstate_source("B 1.0")
     wait_idle(win)
@@ -458,7 +475,18 @@ def test_pin_active_source_shows_pinned_state(tmp_path):
     assert lists / "a.wabbajack" in config.load(cfg).wabbajack
     item = find_item(win, "A 1.0")
     assert item.checkState() == Qt.CheckState.Checked
+    assert not item.icon().isNull()  # pin icon marks it without hovering
     assert "never dropped by latest_only" in item.toolTip()
+
+    win.unpin_source("A 1.0")  # roundtrip: explicit entry removed
+    wait_idle(win)
+    assert lists / "a.wabbajack" not in config.load(cfg).wabbajack
+    item = find_item(win, "A 1.0")
+    assert item.icon().isNull()  # plain active again
+    assert "untick to retire" in item.toolTip()
+
+    win.unpin_source("A 1.0")  # not pinned anymore: no-op with a message
+    assert "not pinned by an explicit entry" in win.console.toPlainText()
 
 
 def test_pin_source_rejects_unpinnable_kinds(tmp_path):
