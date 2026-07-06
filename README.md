@@ -1,6 +1,9 @@
 # mod-sweep
 
 [![CI](https://github.com/zspatter/mod-sweep/actions/workflows/ci.yml/badge.svg)](https://github.com/zspatter/mod-sweep/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/modsweep)](https://pypi.org/project/modsweep/)
+
+![The report view: checkable source tree and classification tables](https://raw.githubusercontent.com/zspatter/mod-sweep/main/docs/screenshots/report.png)
 
 Whitelist-driven cleanup for a Skyrim archive directory shared by multiple
 modlists (Wabbajack lists + Nolvus). Builds a union whitelist from modlist
@@ -248,6 +251,8 @@ The default remains quarantine + trust period.
 uv sync --extra gui          # installs PySide6
 uv run modsweep-gui          # optional: pass a config path
 ```
+
+![The config editor: pickers, per-kind source tabs, exclude globs](https://raw.githubusercontent.com/zspatter/mod-sweep/main/docs/screenshots/config-editor.png)
 
 The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
 (Open Config... to switch) and surveys every resolvable source into a

@@ -12,3 +12,8 @@ dist/
 .modsweep/
 reports/
 snapshots/
+
+# local-only tooling: the shipped asset is assets/modsweep.ico
+packaging/make_icon.py
+# private list names hidden from published screenshots
+packaging/screenshots-omit.txt

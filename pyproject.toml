@@ -4,13 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modsweep"
-version = "0.2.0"
+version = "0.2.1"
 description = "Whitelist-driven cleanup for shared Skyrim modlist archive directories (Wabbajack + Nolvus)"
+readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Zach Patterson" }]
+authors = [{ name = "null device" }]
+keywords = ["skyrim", "wabbajack", "nolvus", "modlist", "mod-organizer-2", "cleanup"]
 requires-python = ">=3.12"
 dependencies = ["xxhash>=3.4"]
+
+[project.urls]
+Repository = "https://github.com/zspatter/mod-sweep"
+Releases = "https://github.com/zspatter/mod-sweep/releases"
+Issues = "https://github.com/zspatter/mod-sweep/issues"
 
 [project.scripts]
 modsweep = "modsweep.cli:main"
