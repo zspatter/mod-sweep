@@ -12,3 +12,5 @@ dist/
 .modsweep/
 reports/
 snapshots/
+dist-exe/
+build-exe/

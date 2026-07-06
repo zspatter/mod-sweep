@@ -53,6 +53,8 @@ uv run modsweep sweep --apply --delete               # ...and purge immediately 
 uv run modsweep restore <quarantine\batch-dir>       # undo a sweep batch
 uv run modsweep snapshot                             # export durable whitelists
 uv run modsweep purge                                # age out old quarantine batches
+uv run modsweep update-manifests                     # fetch newly published Nolvus manifests
+uv run modsweep check-update                         # newer release on GitHub?
 ```
 
 The hash cache lives in `.modsweep/hashes.sqlite`, keyed by path and
@@ -172,14 +174,18 @@ remove any file whose hash was never checked against the whitelist.
 
 ## Bundled Nolvus manifests
 
-Nolvus `InstallPackage.xml` files are not distributed publicly, so this repo
-bundles them (gzipped, ~2 MB each) under `manifests/nolvus/` — **please do
+Nolvus `InstallPackage.xml` files are not distributed publicly, so this
+project bundles them (gzipped, ~2 MB each) as package data — **please do
 not contact the Nolvus author for these files**; new guide releases are
-contributed to this project instead, and multiple versions can coexist in
-the directory. The default config points at the bundled directory (implicit,
-so `latest_only` applies); if you have your own copy, point the `nolvus`
-config key at the `.xml` file directly and it is pinned like any explicit
-entry. The parser reads both `.xml` and `.xml.gz`.
+contributed to this project instead. The `bundled` entry in the `nolvus`
+config key resolves to the shipped manifests plus a per-user data dir where
+`modsweep update-manifests` (or Tools > Update Nolvus Manifests in the GUI)
+downloads newly published versions straight from this repository — no
+servers involved beyond GitHub, and no new executable required for a
+manifest bump. Bundled manifests load implicitly (so `latest_only`
+applies); if you have your own copy, point the `nolvus` config key at the
+`.xml` file directly and it is pinned like any explicit entry. The parser
+reads both `.xml` and `.xml.gz`.
 
 The Nolvus author's upcoming sibling list is expected to ship the same
 manifest format; supporting it should be a matter of dropping its XML into
@@ -293,14 +299,14 @@ in [LICENSE](LICENSE)).
 
 ## Roadmap
 
-- Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
-  install modsweep` delivers both CLI and GUI without cloning; then a
-  release workflow building standalone executables per platform (the
-  cross-platform requirement carries over: the CI matrix pattern applies,
-  producing Windows/Linux/macOS artifacts — PyInstaller emits a windowed
-  `modsweep-gui` + console `modsweep` pair from one spec, per OS, and
-  needs an .ico exported from the painted icon). Publication on
-  nexusmods.com is the end goal for reaching modlist users.
+- First release: register this repo as a PyPI trusted publisher
+  (pypi.org > project > Publishing) so the release workflow's publish job
+  works, then tag — the workflow builds sdist/wheel, publishes (enabling
+  `uv tool install modsweep` / `pipx install modsweep`), and attaches
+  per-OS executable pairs to the GitHub release. Then the NexusMods
+  listing, the end goal for reaching modlist users.
+- App self-update beyond notify-and-link (exe self-replacement) if users
+  ask for it; package-manager installs already upgrade via uv/pipx.
 - Performance note (settled): parsed manifests are cached under
   `.modsweep/manifest_cache` keyed by source size/mtime (12.5s → 0.9s
   resolution on the reference setup). Parallel hashing deliberately
@@ -308,9 +314,3 @@ in [LICENSE](LICENSE)).
   help on fast NVMe and would actively hurt on HDDs.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.
-- Manifest distribution: this repo *owns* the bundled Nolvus manifests, so
-  installed/packaged copies (wheel, exe) must carry them too — move
-  `manifests/nolvus/` into package data resolvable via importlib.resources
-  (e.g. a `bundled` keyword in the `nolvus` config key). New guide releases
-  then ship as app updates; consider a lightweight online manifest index
-  (fetch from this repo) so manifest bumps do not require binary releases.

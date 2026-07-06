@@ -1,0 +1,73 @@
+# Runs on version tags: publishes to PyPI and attaches standalone
+# executables for every platform to the GitHub release.
+#
+# PyPI publishing uses trusted publishing (no token secrets): register this
+# repo + workflow as a trusted publisher on pypi.org (project -> Publishing)
+# before the first release, or the publish-pypi job fails while the
+# executables still build and attach independently.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    needs: build-dist
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  build-executables:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - name: Install with GUI and packaging tools
+        run: uv sync --extra gui --group release
+      - name: Build executable pair
+        run: uv run pyinstaller packaging/modsweep.spec
+      - name: Package artifacts
+        shell: bash
+        run: |
+          cd dist
+          case "${{ runner.os }}" in
+            Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep.exe modsweep-gui.exe ;;
+            macOS)   zip "modsweep-${{ github.ref_name }}-macos.zip" modsweep modsweep-gui ;;
+            Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep modsweep-gui ;;
+          esac
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/modsweep-*.zip
+            dist/modsweep-*.tar.gz
