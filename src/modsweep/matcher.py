@@ -61,8 +61,18 @@ class _Index:
                 if entry.crc32 is not None:
                     self.by_crc32[entry.crc32].append((manifest.label, entry))
 
-    def hash_hits(self, xxh64_b64: str, crc32: int) -> list[tuple[str, Entry]]:
-        return self.by_xxh64.get(xxh64_b64, []) + self.by_crc32.get(crc32, [])
+    def hash_hits(self, xxh64_b64: str, crc32: int, size: int) -> list[tuple[str, Entry]]:
+        """Entries this file's hashes rescue. xxHash64 hits count outright
+        (64 bits: a random collision is fanciful); a CRC32 hit must also
+        agree on size - 32 bits do collide at tens of thousands of files
+        times entries, and a rename never changes a file's size."""
+        hits = list(self.by_xxh64.get(xxh64_b64, []))
+        hits += [
+            (label, e)
+            for label, e in self.by_crc32.get(crc32, [])
+            if e.matches_size(size)
+        ]
+        return hits
 
 
 def match(
@@ -130,29 +140,32 @@ def _classify_hashed(
     hash_matches = [
         (label, e) for label, e in candidates if e.matches_hash(xxh64_b64, crc32)
     ]
-    if hash_matches:
-        return FileResult(
-            disk,
-            KEEP_VERIFIED,
-            sorted({label for label, _ in hash_matches}),
-            _location_note(disk, hash_matches),
-        )
-    rescued = index.hash_hits(xxh64_b64, crc32)
-    if rescued:
-        names = sorted({e.file_name for _, e in rescued})
-        return FileResult(
-            disk,
-            KEEP_VERIFIED,
-            sorted({label for label, _ in rescued}),
-            f"hash matches manifest entry named {names[0]}",
-        )
     # Hashless sources ([NoDelete] custom additions, MO2-install recovery)
-    # can still claim by name - there is nothing to verify against.
+    # claim by name - there is nothing to verify against. They stay in
+    # claimed_by even when a hash source also matches: retiring the hash
+    # source would not free a file a name-only source still protects, and
+    # the unique-claim stats promise exactly that reading.
     hashless = [
         (label, e)
         for label, e in candidates
         if e.matches_hash(xxh64_b64, crc32) is None and e.matches_size(disk.size)
     ]
+    if hash_matches:
+        return FileResult(
+            disk,
+            KEEP_VERIFIED,
+            sorted({label for label, _ in hash_matches + hashless}),
+            _location_note(disk, hash_matches),
+        )
+    rescued = index.hash_hits(xxh64_b64, crc32, disk.size)
+    if rescued:
+        names = sorted({e.file_name for _, e in rescued})
+        return FileResult(
+            disk,
+            KEEP_VERIFIED,
+            sorted({label for label, _ in rescued + hashless}),
+            f"hash matches manifest entry named {names[0]}",
+        )
     if hashless:
         return FileResult(
             disk,

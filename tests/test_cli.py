@@ -323,3 +323,26 @@ def test_pin_sticks_across_label_dedupe(tmp_path):
     sources = _expand_wabbajack([wj_dir]) + _expand_wabbajack([wj_dir / "old.wabbajack"])
     labels = {m.label for m in load_manifests(sources, latest_only=True)}
     assert labels == {"X 1.0", "X 2.0"}
+
+
+def test_duplicate_label_with_differing_contents_warns(tmp_path, capsys):
+    from helpers import make_mo2_install
+
+    a = make_mo2_install(tmp_path / "a", "Inst", {"[NoDelete] 1 x": "one.7z"})
+    b = make_mo2_install(tmp_path / "b", "Inst", {"[NoDelete] 2 y": "two.7z"})
+    manifests = load_manifests([("mo2", a, True), ("mo2", b, True)])
+    assert len(manifests) == 1  # first copy wins, as documented
+    err = capsys.readouterr().err
+    assert "duplicate label [NoDelete] Inst" in err
+    assert "contents differ" in err
+
+
+def test_duplicate_label_identical_copies_dedupe_silently(tmp_path, capsys):
+    one = tmp_path / "one.wabbajack"
+    two = tmp_path / "two" / "one.wabbajack"
+    two.parent.mkdir()
+    make_wj(one, "List", "1.0")
+    make_wj(two, "List", "1.0")
+    manifests = load_manifests([("wabbajack", one, False), ("wabbajack", two, False)])
+    assert len(manifests) == 1
+    assert "duplicate label" not in capsys.readouterr().err

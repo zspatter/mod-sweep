@@ -290,7 +290,16 @@ def _load_sources(
             continue
         # The same list version often exists under several Wabbajack installs;
         # keep the first copy of each label - but a pin from any copy sticks.
-        manifests.setdefault(manifest.label, manifest)
+        existing = manifests.setdefault(manifest.label, manifest)
+        if existing is not manifest and existing.entries != manifest.entries:
+            # Identical copies dedupe silently; differing content under one
+            # label (e.g. two same-named MO2 installs) must not.
+            print(
+                f"warning: duplicate label {manifest.label}: keeping "
+                f"{existing.source_path}, ignoring {manifest.source_path} "
+                f"(contents differ)",
+                file=sys.stderr,
+            )
         if pin:
             pinned.add(manifest.label)
     return list(manifests.values()), pinned

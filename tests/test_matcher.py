@@ -86,6 +86,30 @@ def test_hashless_source_still_claims_by_name_when_hash_known():
     assert (r.status, r.claimed_by) == (KEEP, ["[NoDelete] X"])
 
 
+def test_nodelete_claim_survives_hash_verification():
+    """A name-only claimant stays in claimed_by next to the hash source:
+    retiring the hash source would not free this file."""
+    wj = man("L", Entry(file_name="a.7z", size=100, xxh64_b64="H1"))
+    nd = man("[NoDelete] X", Entry(file_name="a.7z"))
+    (r,) = match([df("a.7z")], [wj, nd], StubCache({"a.7z": ("H1", 1)}))
+    assert (r.status, r.claimed_by) == (KEEP_VERIFIED, ["L", "[NoDelete] X"])
+
+
+def test_rescue_also_credits_name_only_claimant():
+    wj = man("L", Entry(file_name="original.7z", size=100, xxh64_b64="H1"))
+    nd = man("[NoDelete] X", Entry(file_name="renamed.7z"))
+    (r,) = match([df("renamed.7z")], [wj, nd], StubCache({"renamed.7z": ("H1", 1)}))
+    assert (r.status, r.claimed_by) == (KEEP_VERIFIED, ["L", "[NoDelete] X"])
+
+
+def test_crc_collision_with_wrong_size_is_not_rescued():
+    """CRC32 is 32-bit: a rescue additionally requires the sizes to agree
+    (a rename never changes size, so true rescues always pass)."""
+    m = man("N", Entry(file_name="original.7z", size_kb=1, crc32=0xAB))
+    (r,) = match([df("renamed.7z", size=5000)], [m], StubCache({"renamed.7z": ("X", 0xAB)}))
+    assert r.status == UNCLAIMED
+
+
 def test_hash_contradiction_is_stale():
     m = man("L", Entry(file_name="a.7z", size=100, xxh64_b64="H1"))
     (r,) = match([df("a.7z")], [m], StubCache({"a.7z": ("OTHER", 2)}))
