@@ -23,8 +23,8 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, Signal
-    from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF
+    from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, QUrl, Signal
+    from PySide6.QtGui import QBrush, QColor, QDesktopServices, QPen, QPolygonF
     from PySide6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
@@ -63,7 +63,7 @@ except ImportError:  # pragma: no cover - exercised only without the extra
 
 from dataclasses import replace
 
-from . import config, snapshot as snapshot_mod, state, sweep as sweep_mod
+from . import __version__, config, remote, snapshot as snapshot_mod, state, sweep as sweep_mod
 from .cache import HashCache
 from .cli import (
     DEFAULT_CACHE,
@@ -292,15 +292,23 @@ class PathListEditor(QWidget):
     """A list of paths (or plain strings) with add/remove buttons."""
 
     def __init__(self, values: list, file_filter: str | None, allow_dirs: bool,
-                 text_only: bool = False, parent=None):
+                 text_only: bool = False, keyword: str | None = None, parent=None):
         super().__init__(parent)
         self._file_filter = file_filter
+        self._keyword = keyword
         self.list = QListWidget()
         self.list.setAlternatingRowColors(True)
         for value in values:
             self.list.addItem(str(value))
 
         buttons = QHBoxLayout()
+        if keyword is not None:
+            add_keyword = QPushButton(f"Add '{keyword}'")
+            add_keyword.setToolTip(
+                "The manifests shipped with the app, plus downloaded updates"
+            )
+            add_keyword.clicked.connect(self._add_keyword)
+            buttons.addWidget(add_keyword)
         if text_only:
             self.pattern_edit = QLineEdit()
             self.pattern_edit.setPlaceholderText("glob, e.g. LoreRim 2.2*")
@@ -336,6 +344,10 @@ class PathListEditor(QWidget):
             self.list.addItem(text)
             self.pattern_edit.clear()
 
+    def _add_keyword(self) -> None:
+        if self._keyword not in self.values():
+            self.list.addItem(self._keyword)
+
     def _add_file(self) -> None:  # pragma: no cover - native dialog
         chosen, _ = QFileDialog.getOpenFileName(self, "Add file", "", self._file_filter)
         if chosen:
@@ -365,9 +377,9 @@ class ConfigEditorDialog(QDialog):
          "finds load implicitly (latest-only filterable); add a specific "
          "<i>file</i> to pin that exact version so no filter drops it."),
         ("nolvus", "Nolvus", "Nolvus manifests (*.xml *.xml.gz)", True,
-         "Nolvus installer manifests (InstallPackage.xml / .xml.gz). This "
-         "project bundles them under manifests/nolvus - add that folder "
-         "once and new guide versions arrive with app updates. Adding a "
+         "Nolvus installer manifests (InstallPackage.xml / .xml.gz). The "
+         "'bundled' entry means the manifests shipped with the app plus any "
+         "updates fetched by Tools > Update Nolvus Manifests. Adding a "
          "specific file pins that guide version."),
         ("installs", "Installs", None, True,
          "MO2 installations checked for [NoDelete]-prefixed custom "
@@ -423,7 +435,10 @@ class ConfigEditorDialog(QDialog):
         self.editors: dict[str, PathListEditor] = {}
         tabs = QTabWidget()
         for key, title, file_filter, allow_dirs, desc in self.SOURCE_TABS:
-            editor = PathListEditor(getattr(cfg, key), file_filter, allow_dirs)
+            editor = PathListEditor(
+                getattr(cfg, key), file_filter, allow_dirs,
+                keyword="bundled" if key == "nolvus" else None,
+            )
             self.editors[key] = editor
             tabs.addTab(self._described_page(desc, editor), title)
         self.exclude_editor = PathListEditor(cfg.exclude, None, False, text_only=True)
@@ -600,6 +615,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress)
         self.setCentralWidget(root)
 
+        self._build_menus()
         self.log("Tip: hover any button for guidance; action output lands here.")
         self._log_bridge = LogBridge()
         self._log_bridge.message.connect(self.log)
@@ -646,6 +662,18 @@ class MainWindow(QMainWindow):
         self.buttons["restore"].clicked.connect(lambda: self.run_restore())
         self.buttons["purge"].clicked.connect(lambda: self.run_purge())
         self.buttons["snapshot"].clicked.connect(lambda: self.run_snapshot())
+
+    def _build_menus(self) -> None:
+        tools = self.menuBar().addMenu("&Tools")
+        tools.addAction("Update Nolvus Manifests...", self.run_manifest_update)
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction("Check for Updates...", self.run_update_check)
+        help_menu.addAction(
+            "Source Resolution && Retirement...",
+            lambda: QMessageBox.information(  # pragma: no cover - modal
+                self, "Source resolution & retirement", RESOLUTION_HELP
+            ),
+        )
 
     def _build_tabs(self) -> None:
         self.summary_label = QLabel("Run Report to classify the downloads directory.")
@@ -1003,6 +1031,30 @@ class MainWindow(QMainWindow):
                 subset.append(result)
         return subset
 
+    def run_manifest_update(self) -> None:
+        def action(worker: Worker) -> None:
+            downloaded = remote.update_manifests()
+            if downloaded:
+                worker.summary.emit(
+                    f"Downloaded {len(downloaded)} new manifest(s): "
+                    + ", ".join(downloaded)
+                )
+            else:
+                worker.summary.emit("Bundled manifests are up to date.")
+
+        self._start(action, "Updating manifests", then_refresh=True)
+
+    def run_update_check(self) -> None:
+        def action(worker: Worker) -> None:
+            info = remote.check_update(__version__)
+            if info is None:
+                worker.summary.emit(f"Mod Sweep v{__version__} is up to date.")
+            else:
+                worker.status.emit(f"Update available: v{info.latest}")
+                worker.payload.emit(("update", info))
+
+        self._start(action, "Checking for updates")
+
     def run_snapshot(self, out_dir: Path | None = None) -> None:
         if out_dir is None:  # pragma: no cover - native dialog
             base = self.config_path.parent if self.config_path else Path(".")
@@ -1079,6 +1131,18 @@ class MainWindow(QMainWindow):
         elif kind == "report":
             manifests, results = data
             self._show_report(manifests, results)
+        elif kind == "update":
+            self._offer_update(data)
+
+    def _offer_update(self, info: remote.UpdateInfo) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Update available",
+            f"Mod Sweep v{info.latest} is available (you are running "
+            f"v{info.current}).\n\nOpen the releases page?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:  # pragma: no cover - browser
+            QDesktopServices.openUrl(QUrl(info.url))
 
     def _show_sources(self, infos: list[SourceInfo]) -> None:
         self._all_infos = infos
@@ -1348,7 +1412,9 @@ class MainWindow(QMainWindow):
     def _cache_path(self) -> Path:
         return self.cfg.cache or DEFAULT_CACHE
 
-    def _start(self, fn, doing: str, then_report: bool = False) -> None:
+    def _start(
+        self, fn, doing: str, then_report: bool = False, then_refresh: bool = False
+    ) -> None:
         if self._worker is not None and self._worker.isRunning():
             return  # one action at a time
         self._set_busy(True, doing)
@@ -1359,12 +1425,16 @@ class MainWindow(QMainWindow):
         self._worker.progress.connect(self._on_progress)
         self._worker.payload.connect(self._on_payload)
         self._worker.failed.connect(lambda msg: self._on_status(f"error: {msg}"))
-        self._worker.finished.connect(lambda: self._on_finished(then_report))
+        self._worker.finished.connect(
+            lambda: self._on_finished(then_report, then_refresh)
+        )
         self._worker.start()
 
-    def _on_finished(self, then_report: bool) -> None:
+    def _on_finished(self, then_report: bool, then_refresh: bool = False) -> None:
         self._set_busy(False, "")
-        if then_report:
+        if then_refresh:
+            self.refresh_sources()
+        elif then_report:
             self.run_report()
 
     def _on_progress(self, done: int, total: int) -> None:

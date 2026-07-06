@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import (
+    bundled,
     config,
     manifest_cache,
     mo2,
@@ -50,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         "restore": _cmd_restore,
         "snapshot": _cmd_snapshot,
         "purge": _cmd_purge,
+        "update-manifests": _cmd_update_manifests,
+        "check-update": _cmd_check_update,
     }
     return handlers[args.cmd](args)
 
@@ -70,6 +73,15 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_restore(sub)
     _add_snapshot(sub, common)
     _add_purge(sub)
+    sub.add_parser(
+        "update-manifests",
+        help="Download newly published bundled manifests (Nolvus) from the "
+        "project repository into the per-user data dir",
+    )
+    sub.add_parser(
+        "check-update",
+        help="Check the project's GitHub releases for a newer version",
+    )
     return parser
 
 
@@ -405,9 +417,17 @@ def config_sources(cfg: config.Config) -> list[tuple[str, Path, bool]]:
 
 def _expand_nolvus(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     """A directory of bundled manifests is implicit (latest-only filterable);
-    a file the user names — their own copy from the author — is pinned."""
-    out: list[tuple[str, Path, bool]] = []
+    a file the user names — their own copy from the author — is pinned.
+    The 'bundled' keyword stands for the package-shipped manifests plus any
+    downloaded updates in the per-user data dir."""
+    expanded: list[Path] = []
     for path in paths:
+        if str(path).strip().lower() == bundled.KEYWORD:
+            expanded.extend(bundled.manifest_dirs())
+        else:
+            expanded.append(path)
+    out: list[tuple[str, Path, bool]] = []
+    for path in expanded:
         if path.is_dir():
             files = sorted(
                 p for p in path.iterdir()
@@ -718,6 +738,40 @@ def _cmd_purge(args: argparse.Namespace) -> int:
     for b in aged:
         sweep_mod.purge_batch(b)
         print(f"purged {b.path}")
+    return 0
+
+
+def _cmd_update_manifests(args: argparse.Namespace) -> int:
+    from . import remote
+
+    try:
+        downloaded = remote.update_manifests()
+    except OSError as exc:
+        raise SystemExit(f"error: manifest update failed: {exc}")
+    if not downloaded:
+        print("Bundled manifests are up to date.")
+        return 0
+    for name in downloaded:
+        print(f"  downloaded {name}")
+    print(
+        f"{len(downloaded)} new manifest(s) in {remote.bundled.user_dir()} - "
+        f"the 'bundled' config entry picks them up automatically."
+    )
+    return 0
+
+
+def _cmd_check_update(args: argparse.Namespace) -> int:
+    from . import __version__, remote
+
+    try:
+        info = remote.check_update(__version__)
+    except OSError as exc:
+        raise SystemExit(f"error: update check failed: {exc}")
+    if info is None:
+        print(f"modsweep v{__version__} is up to date.")
+        return 0
+    print(f"Update available: v{info.latest} (running v{info.current})")
+    print(info.url)
     return 0
 
 

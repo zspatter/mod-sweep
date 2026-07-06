@@ -24,6 +24,9 @@ gui = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+modsweep = ["data/nolvus/*.xml", "data/nolvus/*.xml.gz"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

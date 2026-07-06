@@ -56,8 +56,16 @@ def load(path: Path | None) -> Config:
         p = Path(value)
         return p if p.is_absolute() else base / p
 
-    def resolve_list(key: str) -> list[Path]:
-        return [resolve(v) for v in data.get(key, [])]
+    def resolve_list(key: str, keep_keywords: bool = False) -> list[Path]:
+        out: list[Path] = []
+        for v in data.get(key, []):
+            if keep_keywords and str(v).strip().lower() == "bundled":
+                # sentinel: expanded at resolution time (package + user
+                # manifest dirs), preserved verbatim through save/load
+                out.append(Path("bundled"))
+            else:
+                out.append(resolve(v))
+        return out
 
     quarantine_data = data.get("quarantine") or {}
     quarantine = quarantine_data.get("dir")
@@ -66,7 +74,7 @@ def load(path: Path | None) -> Config:
         downloads=resolve(data["downloads"]) if "downloads" in data else None,
         cache=resolve(data["cache"]) if "cache" in data else None,
         wabbajack=resolve_list("wabbajack"),
-        nolvus=resolve_list("nolvus"),
+        nolvus=resolve_list("nolvus", keep_keywords=True),
         installs=resolve_list("installs"),
         recovery=resolve_list("recovery"),
         snapshots=resolve_list("snapshots"),
