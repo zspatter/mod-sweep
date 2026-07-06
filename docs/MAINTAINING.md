@@ -62,11 +62,8 @@ new file name prefix.
 
 ## Assets
 
-- **Icon**: the drawing lives in `modsweep/gui/icons.py::_app_icon`; only
-  the exported `assets/modsweep.ico` ships. The exporter
-  (`packaging/make_icon.py`) is local-only tooling, deliberately
-  untracked - regenerate with `uv run python packaging/make_icon.py`
-  after changing the drawing.
+- **Icon**: `assets/modsweep.ico` is a finished, static asset - it ships
+  as-is and is not regenerated.
 - **Screenshots**: `uv run python packaging/make_screenshots.py [config]`
   regenerates `docs/screenshots/` offscreen (loads Windows fonts manually -
   the offscreen platform has no GDI access). Private list names to hide go
