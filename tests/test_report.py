@@ -1,8 +1,16 @@
+import csv
 from pathlib import Path
 
 from modsweep.manifest import Manifest
 from modsweep.matcher import KEEP, KEEP_VERIFIED, STALE, UNCLAIMED, FileResult
-from modsweep.report import candidate_lines, claim_lines, source_lines, status_lines, summarize
+from modsweep.report import (
+    candidate_lines,
+    claim_lines,
+    source_lines,
+    status_lines,
+    summarize,
+    write_csv,
+)
 from modsweep.scanner import DiskFile
 
 GB = 1 << 30
@@ -65,6 +73,25 @@ def test_summarize_composes_sections():
     assert "Potential reclaim" in out
     assert "Largest deletion candidates:" in out
     assert "Disk archives claimed" not in out  # nothing claimed
+
+
+def test_write_csv_contents_and_ordering(tmp_path):
+    results = [
+        fr("small-unclaimed.7z", 1 * GB, UNCLAIMED),
+        fr("big-unclaimed.7z", 2 * GB, UNCLAIMED, ),
+        fr("kept.7z", 1 * GB, KEEP, ["L1", "L2"]),
+    ]
+    out = tmp_path / "report.csv"
+    write_csv(results, out)
+    with open(out, encoding="utf-8-sig") as fh:
+        rows = list(csv.DictReader(fh))
+    assert [r["rel_path"] for r in rows] == [
+        "kept.7z",  # sorted by status, then size descending within status
+        "big-unclaimed.7z",
+        "small-unclaimed.7z",
+    ]
+    assert rows[0]["claimed_by"] == "L1; L2"
+    assert rows[1]["size_bytes"] == str(2 * GB)
 
 
 def test_source_lines_show_origin_tail():

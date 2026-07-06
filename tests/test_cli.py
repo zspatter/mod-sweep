@@ -1,3 +1,4 @@
+import argparse
 import json
 import zipfile
 import zlib
@@ -5,7 +6,16 @@ import zlib
 import pytest
 
 from modsweep import sweep as sweep_mod
-from modsweep.cli import _expand_wabbajack, load_manifests, main
+from modsweep.cli import (
+    _build_parser,
+    _expand_wabbajack,
+    _infer_file_kind,
+    _purge_threshold,
+    _resolve,
+    load_manifests,
+    main,
+)
+from modsweep.config import Config
 
 
 def make_wj(path, name, version):
@@ -38,6 +48,78 @@ def test_explicit_entry_pins_version_through_latest_only(tmp_path):
     with_pin = _expand_wabbajack([wj_dir, wj_dir / "old.wabbajack"])
     labels = {m.label for m in load_manifests(with_pin, latest_only=True)}
     assert labels == {"X 1.0", "X 2.0"}
+
+
+# --- resolution plumbing ---------------------------------------------------
+
+
+def test_resolve_precedence_cli_over_config(tmp_path):
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"""
+downloads = '{tmp_path / "cfg_dl"}'
+cache = '{tmp_path / "cfg_cache.sqlite"}'
+wabbajack = ['some.wabbajack']
+exclude = ['A*']
+latest_only = false
+""",
+        encoding="utf-8",
+    )
+    args = _build_parser().parse_args(
+        [
+            "report", "--config", str(cfg),
+            "--downloads", str(tmp_path / "cli_dl"),
+            "--exclude", "B*",
+            "--latest-only",
+        ]
+    )
+    res = _resolve(args)
+    assert res.downloads == tmp_path / "cli_dl"  # CLI overrides config
+    assert res.cache == tmp_path / "cfg_cache.sqlite"  # config fills the gap
+    assert res.exclude == ["A*", "B*"]  # exclude is additive
+    assert res.latest_only is True  # CLI flag ORs with config
+    assert res.from_config is True  # no -m given: config sources
+
+
+def test_resolve_cli_sources_replace_config_entirely(tmp_path):
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{tmp_path}'\nwabbajack = ['config.wabbajack']\n",
+        encoding="utf-8",
+    )
+    explicit = tmp_path / "cli.wabbajack"
+    make_wj(explicit, "X", "1.0")
+    args = _build_parser().parse_args(
+        ["report", "--config", str(cfg), "-m", str(explicit)]
+    )
+    res = _resolve(args)
+    assert res.sources == [("wabbajack", explicit, True)]
+    assert res.from_config is False
+
+
+def test_infer_file_kind(tmp_path):
+    assert _infer_file_kind(tmp_path / "x.wabbajack") == "wabbajack"
+    assert _infer_file_kind(tmp_path / "x.xml") == "nolvus"
+    assert _infer_file_kind(tmp_path / "x.7z") is None
+
+    modlist = tmp_path / "modlist.json"
+    modlist.write_text(json.dumps({"Name": "X", "Archives": []}), encoding="utf-8")
+    assert _infer_file_kind(modlist) == "wabbajack"
+
+    snap = tmp_path / "snap.json"
+    snap.write_text(
+        json.dumps({"modsweep_snapshot": 1, "label": "X", "entries": []}),
+        encoding="utf-8",
+    )
+    assert _infer_file_kind(snap) == "snapshot"
+
+
+def test_purge_threshold_precedence():
+    explicit = argparse.Namespace(older_than=5)
+    unset = argparse.Namespace(older_than=None)
+    assert _purge_threshold(explicit, Config(quarantine_keep_days=10)) == 5
+    assert _purge_threshold(unset, Config(quarantine_keep_days=10)) == 10
+    assert _purge_threshold(unset, Config()) == 30
 
 
 # --- end-to-end through main() --------------------------------------------

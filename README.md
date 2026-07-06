@@ -204,9 +204,16 @@ so every safety rule still applies (hash gate, sidecar binding, dry-run
 preview, batch manifest) — and then purged immediately. **There is no undo.**
 The default remains quarantine + trust period.
 
+## Testing
+
+`uv run pytest` (or with `--cov=modsweep` for coverage, ~94%). The suite
+spans unit tests per module and end-to-end tests that drive the CLI against
+synthetic download trees — `tests/test_e2e.py` walks one tree through the
+full lifecycle: pre-hash classification, hash-gate refusal, hashing,
+rescue/contradiction outcomes, sweep, restore, and purge aging. Shared
+builders for fake manifests live in `tests/helpers.py`. CI runs everything
+on Windows/Linux/macOS × Python 3.12/3.14.
+
 ## Roadmap
 
-- End-to-end tests driving the CLI against synthetic downloads trees
-  (seeded in tests/test_cli.py), plus broader unit coverage (report
-  rendering, hash command, CLI plumbing).
 - GUI for picking manifests and watching progress (nice-to-have).
