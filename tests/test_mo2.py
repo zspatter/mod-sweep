@@ -81,3 +81,37 @@ def test_plain_mods_dir_with_mod_named_mods_is_not_descended(tmp_path):
     m = mo2.load(inst)
     assert m.label == "[NoDelete] SomeList"
     assert [e.file_name for e in m.entries] == ["A-1.zip"]
+
+
+def test_stray_file_in_mods_dir_is_skipped(instance):
+    (instance / "mods" / "readme.txt").write_text("not a mod", encoding="utf-8")
+    m = mo2.load(instance)
+    assert {e.file_name for e in m.entries} == {"A-1.zip", "B-2.7z"}
+
+
+def test_has_nodelete_mods_all_cases(tmp_path, instance):
+    plain = tmp_path / "PlainList"
+    make_mod(plain / "mods", "Regular Mod", ["[General]", "installationFile=r.zip"])
+    no_mods = tmp_path / "NotAnInstall"
+    no_mods.mkdir()
+    assert mo2.has_nodelete_mods(instance) is True
+    assert mo2.has_nodelete_mods(plain) is False
+    assert mo2.has_nodelete_mods(no_mods) is False
+
+
+def test_mod_without_meta_ini_counts_as_missing(tmp_path, capsys):
+    inst = tmp_path / "Inst"
+    make_mod(inst / "mods", "[NoDelete] 00.001 NoMeta", None)
+    m = mo2.load(inst)
+    assert m.entries == []
+    assert "have no installationFile recorded" in capsys.readouterr().err
+
+
+def test_installation_file_outside_general_section_is_ignored(tmp_path):
+    inst = tmp_path / "Inst"
+    make_mod(
+        inst / "mods",
+        "[NoDelete] 00.001 Odd",
+        ["[Other]", "installationFile=wrong.7z", "[General]", "version=1"],
+    )
+    assert mo2.load(inst).entries == []

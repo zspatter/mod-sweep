@@ -99,3 +99,76 @@ def test_latest_only_never_drops_pinned(entries, data):
     assert pinned_labels <= kept_labels
     for old, _winner in superseded:
         assert old.label not in pinned_labels
+
+
+# --- matcher invariants -------------------------------------------------------
+
+
+def _disk_file(name: str, size: int):
+    from modsweep.scanner import DiskFile
+
+    return DiskFile(
+        path=Path("X:/dl") / name, rel=name, subdir="", name=name,
+        size=size, mtime_ns=0,
+    )
+
+
+class _Stub:
+    def __init__(self, data):
+        self.data = data
+
+    def get(self, disk):
+        return self.data.get(disk.rel)
+
+
+_NAMES = ["alpha.7z", "beta.7z", "gamma.7z"]
+_HASHES = ["H1=", "H2="]
+
+
+def _entries():
+    from modsweep.manifest import Entry
+
+    return st.lists(
+        st.builds(
+            Entry,
+            file_name=st.sampled_from(_NAMES),
+            size=st.one_of(st.none(), st.integers(min_value=1, max_value=4)),
+            xxh64_b64=st.one_of(st.none(), st.sampled_from(_HASHES)),
+        ),
+        max_size=6,
+    )
+
+
+_disk_files = st.lists(
+    st.builds(
+        _disk_file,
+        name=st.sampled_from([*_NAMES, "junk.7z", "junk.7z.meta"]),
+        size=st.integers(min_value=1, max_value=4),
+    ),
+    max_size=6,
+    unique_by=lambda f: f.rel,
+)
+_hashed = st.dictionaries(
+    st.sampled_from([*_NAMES, "junk.7z"]),
+    st.tuples(st.sampled_from(_HASHES), st.integers(min_value=0, max_value=3)),
+    max_size=4,
+)
+
+
+@given(_entries(), _disk_files, _hashed)
+def test_matcher_invariants(entry_list, files, cache_data):
+    """Whatever the whitelist and disk state, classification obeys:
+    one result per file, protection implies a claimant (and vice versa),
+    and sidecars always mirror their archive."""
+    from modsweep.matcher import KEEP, KEEP_VERIFIED, META_ORPHAN, match
+
+    manifests = [Manifest(label="L", source_path=Path("m"), entries=entry_list)]
+    results = match(files, manifests, _Stub(cache_data))
+    by_rel = {r.disk.rel: r for r in results}
+    assert len(results) == len(files)
+    for r in results:
+        protected = r.status in (KEEP, KEEP_VERIFIED)
+        assert protected == bool(r.claimed_by)
+        if r.sidecar and r.status != META_ORPHAN:
+            base = by_rel[r.disk.rel[: -len(".meta")]]
+            assert (r.status, r.claimed_by) == (base.status, base.claimed_by)

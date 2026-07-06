@@ -79,3 +79,11 @@ def test_save_minimal_config_loads_clean(tmp_path):
     assert loaded.downloads is None
     assert not loaded.has_sources
     assert loaded.quarantine_keep_days is None
+
+
+def test_keep_days_without_quarantine_dir_roundtrips(tmp_path):
+    path = tmp_path / "modsweep.toml"
+    config.save(config.Config(quarantine_keep_days=15), path)
+    loaded = config.load(path)
+    assert loaded.quarantine is None
+    assert loaded.quarantine_keep_days == 15

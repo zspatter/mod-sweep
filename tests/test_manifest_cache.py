@@ -75,3 +75,11 @@ def test_unpicklable_entry_means_fresh_parse(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pickle, "load", explode)
     assert manifest_cache.load(cache_dir, wj, "wabbajack") is None
+
+
+def test_store_failure_is_silent_best_effort(tmp_path):
+    wj = make_wabbajack(tmp_path / "a.wabbajack", "A", "1.0", [])
+    blocked = tmp_path / "not-a-dir"
+    blocked.write_text("a file where the cache dir should go", encoding="utf-8")
+    manifest_cache.store(blocked, wj, "wabbajack", load_wj(wj))  # must not raise
+    assert manifest_cache.load(blocked, wj, "wabbajack") is None

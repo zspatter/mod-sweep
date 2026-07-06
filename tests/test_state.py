@@ -98,3 +98,9 @@ def test_adhoc_manifest_runs_do_not_touch_baseline(tmp_path, capsys):
 
     state_file = tmp_path / ".modsweep" / "state.json"
     assert set(state.read(state_file)) == {"A 1.0", "B 1.0"}
+
+
+def test_read_rejects_non_dict_active_payload(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text('{"active": ["a label"]}', encoding="utf-8")
+    assert state.read(path) == {}

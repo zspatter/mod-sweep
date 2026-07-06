@@ -50,3 +50,18 @@ def test_exact_size_matching_is_strict():
     e = Entry(file_name="x.7z", size=1000)
     assert e.matches_size(1000)
     assert not e.matches_size(1001)
+
+
+def test_file_entries_without_names_are_skipped(tmp_path):
+    xml = tmp_path / "InstallPackage.xml"
+    xml.write_text(
+        '<?xml version="1.0"?><InstallationManifest>'
+        "<Settings><Guide><Name>G</Name><Version>1.0</Version></Guide></Settings>"
+        "<Softwares><Soft><Files>"
+        "<File><FileName></FileName><Size>1</Size></File>"
+        "<File><FileName>tool.7z</FileName><Size>1</Size><CRC32>AB</CRC32></File>"
+        "</Files></Soft></Softwares><Categories/></InstallationManifest>",
+        encoding="utf-8",
+    )
+    manifest = nolvus.load(xml)
+    assert [e.file_name for e in manifest.entries] == ["tool.7z"]

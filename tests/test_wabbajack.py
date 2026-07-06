@@ -84,3 +84,30 @@ def test_bare_modlist_json(tmp_path):
         json.dumps({"Name": "Bare", "Version": "2.0", "Archives": []}), encoding="utf-8"
     )
     assert wabbajack.load(p).label == "Bare 2.0"
+
+
+def test_corrupt_metadata_sidecar_is_tolerated(tmp_path):
+    wj = tmp_path / "L_@@_machine-id.wabbajack"
+    make_wj(wj, name="L", version="1.0")
+    (tmp_path / "L_@@_machine-id.wabbajack.metadata").write_text(
+        "{not json", encoding="utf-8"
+    )
+    manifest = wabbajack.load(wj)
+    assert manifest.label == "L 1.0"
+    assert manifest.machine == "machine-id"  # filename convention still applies
+
+
+def test_metadata_sidecar_with_non_dict_payload_is_tolerated(tmp_path):
+    wj = tmp_path / "a.wabbajack"
+    make_wj(wj, name="L", version="1.0")
+    (tmp_path / "a.wabbajack.metadata").write_text('["list"]', encoding="utf-8")
+    assert wabbajack.load(wj).machine == ""
+
+
+def test_zip_without_modlist_raises_value_error(tmp_path):
+    import pytest
+
+    path = tmp_path / "broken.wabbajack"
+    make_wj(path, entry_name="readme.txt")  # a zip with no modlist member
+    with pytest.raises(ValueError, match="no modlist entry"):
+        wabbajack.load(path)

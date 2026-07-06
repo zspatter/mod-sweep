@@ -491,7 +491,7 @@ def test_sweep_plan_truncates_after_ten_largest(tmp_path, capsys):
 
 
 def test_sweep_defaults_quarantine_next_to_downloads(tmp_path, capsys):
-    dl, args = build_tree(tmp_path)
+    _, args = build_tree(tmp_path)
     capsys.readouterr()
     assert main(["sweep", *args]) == 0  # dry run: no --quarantine anywhere
     assert str(tmp_path / "_quarantine") in capsys.readouterr().out
@@ -500,7 +500,7 @@ def test_sweep_defaults_quarantine_next_to_downloads(tmp_path, capsys):
 def test_hash_interrupt_reports_resumable(tmp_path, capsys, monkeypatch):
     from modsweep import cli as cli_mod
 
-    dl, args = build_tree(tmp_path)
+    _, args = build_tree(tmp_path)
 
     def boom(pending, total_bytes, cache):
         raise KeyboardInterrupt

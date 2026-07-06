@@ -43,3 +43,22 @@ def test_expand_nolvus_bundled_keyword_yields_manifest_dirs():
     names = {path.name for _, path, _ in sources}
     assert "nolvus-awakening-6.0.20.xml.gz" in names
     assert all(kind == "nolvus" and not pinned for kind, _, pinned in sources)
+
+
+def test_user_dir_on_macos(monkeypatch):
+    import sys
+    from pathlib import Path
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    home = Path.home()
+    assert bundled.user_dir() == (
+        home / "Library" / "Application Support" / "modsweep" / "manifests" / "nolvus"
+    )
+
+
+def test_user_dir_on_linux_honors_xdg(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert bundled.user_dir() == tmp_path / "xdg" / "modsweep" / "manifests" / "nolvus"
