@@ -1,21 +1,35 @@
 # Cross-platform is a standing requirement: Windows is the primary platform,
 # Linux support matters, and macOS must not break — so the matrix covers all
-# three, on the oldest supported and current Python.
+# three natively plus Debian and Arch containers, on the oldest supported,
+# current, and latest-available Python.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC: catch runner/toolchain drift
+  workflow_dispatch:
 
 jobs:
   test:
+    name: test (${{ matrix.container || matrix.os }}, py${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-        python: ['3.12', '3.14']
+        python: ['3.12', '3.14', '3'] # '3' = latest available CPython
+        # '' = run natively on the runner. Debian/Arch have no hosted
+        # runners, so they join as containers on ubuntu via the include
+        # rows — which must contradict this key to spawn standalone jobs
+        # (otherwise they would merely augment the native ubuntu/py3 job).
+        container: ['']
+        include:
+          - { os: ubuntu-latest, python: '3', container: 'debian:latest' }
+          - { os: ubuntu-latest, python: '3', container: 'archlinux:latest' }
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -26,3 +40,18 @@ jobs:
         run: uv sync
       - name: Run tests
         run: uv run pytest
+
+  # GitHub pauses cron-triggered workflows after ~60 days without repo
+  # activity; the schedule alone cannot keep itself alive. Re-enabling an
+  # already-enabled workflow resets that timer, so each scheduled run
+  # renews its own lease — no dummy commits needed.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Reset the scheduled-workflow disable timer
+        run: gh workflow enable ci.yml --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

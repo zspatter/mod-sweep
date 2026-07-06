@@ -29,6 +29,7 @@ def save(manifest: Manifest, out_dir: Path) -> Path:
         "label": manifest.label,
         "name": manifest.name,
         "version": manifest.version,
+        "machine": manifest.machine,
         "source": str(manifest.source_path),
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "entries": [
@@ -72,6 +73,7 @@ def load(path: Path) -> Manifest:
         entries=entries,
         name=data.get("name", ""),
         version=data.get("version", ""),
+        machine=data.get("machine", ""),
     )
 
 

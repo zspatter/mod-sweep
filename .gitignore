@@ -6,6 +6,7 @@ resources/
 __pycache__/
 *.egg-info/
 build/
+dist/
 
 # modsweep local state
 .modsweep/

@@ -13,6 +13,9 @@ def sample_manifest():
             Entry(file_name="a.7z", size=100, xxh64_b64="H1", kind="mod"),
             Entry(file_name="b.zip", subdir="1.1 X", size_kb=10, crc32=0xAB, kind="tool"),
         ],
+        name="Some List",
+        version="1.2.3",
+        machine="some_list",
     )
 
 
@@ -21,6 +24,9 @@ def test_save_load_roundtrip(tmp_path):
     loaded = snapshot.load(path)
     assert loaded.label == "Some List 1.2.3"
     assert loaded.entries == sample_manifest().entries
+    assert (loaded.name, loaded.version, loaded.machine) == (
+        "Some List", "1.2.3", "some_list"
+    )
 
 
 def test_is_snapshot_sniff(tmp_path):

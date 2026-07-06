@@ -60,6 +60,20 @@ def test_grouping_is_case_insensitive():
     assert kept == [b]
 
 
+def test_machine_id_groups_renamed_lists():
+    old = Manifest(
+        label="Living Skyrim 3.0", source_path=Path("m"),
+        name="Living Skyrim", version="3.0", machine="living_skyrim",
+    )
+    new = Manifest(
+        label="Living Skyrim 4 4.0", source_path=Path("m"),
+        name="Living Skyrim 4", version="4.0", machine="living_skyrim",
+    )
+    kept, superseded, _ = latest_only([old, new])
+    assert kept == [new]  # renamed between releases, still one list
+    assert superseded == [(old, new)]
+
+
 # --- pinning (explicit entries survive the filter) ------------------------
 
 

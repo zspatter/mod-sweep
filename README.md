@@ -286,6 +286,11 @@ rescue/contradiction outcomes, sweep, restore, and purge aging. Shared
 builders for fake manifests live in `tests/helpers.py`. CI runs everything
 on Windows/Linux/macOS × Python 3.12/3.14.
 
+## License
+
+MIT — do what you like with it, keep the attribution (the copyright notice
+in [LICENSE](LICENSE)).
+
 ## Roadmap
 
 - Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
@@ -294,7 +299,8 @@ on Windows/Linux/macOS × Python 3.12/3.14.
   cross-platform requirement carries over: the CI matrix pattern applies,
   producing Windows/Linux/macOS artifacts — PyInstaller emits a windowed
   `modsweep-gui` + console `modsweep` pair from one spec, per OS, and
-  needs an .ico exported from the painted icon).
+  needs an .ico exported from the painted icon). Publication on
+  nexusmods.com is the end goal for reaching modlist users.
 - Performance note (settled): parsed manifests are cached under
   `.modsweep/manifest_cache` keyed by source size/mtime (12.5s → 0.9s
   resolution on the reference setup). Parallel hashing deliberately

@@ -43,6 +43,13 @@ class Manifest:
     entries: list[Entry] = field(default_factory=list)
     name: str = ""  # list identity without version, e.g. "LoreRim"
     version: str = ""
+    machine: str = ""  # stable machine id (Wabbajack machineURL) when known
+
+    @property
+    def group_key(self) -> str:
+        """Version-grouping identity: machine id when available (robust to
+        list renames between releases), else name, else label."""
+        return (self.machine or self.name or self.label).lower()
 
 
 def version_key(version: str) -> list[tuple[int, int, str]]:
@@ -80,15 +87,14 @@ def latest_only(
     """
     winners: dict[str, Manifest] = {}
     for m in manifests:
-        key = (m.name or m.label).lower()
-        current = winners.get(key)
+        current = winners.get(m.group_key)
         if current is None or version_key(m.version) > version_key(current.version):
-            winners[key] = m
+            winners[m.group_key] = m
     kept: list[Manifest] = []
     superseded: list[tuple[Manifest, Manifest]] = []
     pinned_kept: list[tuple[Manifest, Manifest]] = []
     for m in manifests:
-        winner = winners[(m.name or m.label).lower()]
+        winner = winners[m.group_key]
         if m is winner:
             kept.append(m)
         elif m.label in pinned:

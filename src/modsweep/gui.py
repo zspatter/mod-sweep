@@ -1091,8 +1091,7 @@ class MainWindow(QMainWindow):
         (pin/exclusion), so routine version churn never floods the list."""
         groups: dict[str, list[SourceInfo]] = {}
         for info in self._all_infos:
-            key = (info.manifest.name or info.manifest.label).lower()
-            groups.setdefault(key, []).append(info)
+            groups.setdefault(info.manifest.group_key, []).append(info)
 
         self._suppress_source_signal = True
         self.sources_list.clear()

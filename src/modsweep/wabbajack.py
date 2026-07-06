@@ -20,10 +20,15 @@ def load(path: Path) -> Manifest:
 
     name = data.get("Name") or path.stem
     version = data.get("Version") or ""
+    sidecar = _sidecar_meta(path)
     # Old-format lists ship a placeholder Version; the gallery .metadata
     # sidecar next to the .wabbajack carries the real one.
     if version in ("", "0.0.1.0"):
-        version = _sidecar_version(path) or version
+        version = sidecar.get("version") or version
+    # The machineURL is the stable list identity - robust to a list being
+    # renamed between releases. Sidecar first, filename convention second
+    # (<repo>_@@_<machineURL>.wabbajack).
+    machine = (sidecar.get("links") or {}).get("machineURL") or _machine_from_name(path)
     label = f"{name} {version}".strip()
 
     entries: list[Entry] = []
@@ -40,18 +45,30 @@ def load(path: Path) -> Manifest:
             )
         )
     return Manifest(
-        label=label, source_path=path, entries=entries, name=name, version=version
+        label=label,
+        source_path=path,
+        entries=entries,
+        name=name,
+        version=version,
+        machine=machine,
     )
 
 
-def _sidecar_version(path: Path) -> str | None:
+def _sidecar_meta(path: Path) -> dict:
     sidecar = path.with_name(path.name + ".metadata")
     if not sidecar.exists():
-        return None
+        return {}
     try:
-        return json.loads(sidecar.read_text(encoding="utf-8")).get("version")
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
-        return None
+        return {}
+
+
+def _machine_from_name(path: Path) -> str:
+    if "_@@_" in path.stem:
+        return path.stem.split("_@@_")[-1]
+    return ""
 
 
 def _read_modlist_json(path: Path) -> dict:
