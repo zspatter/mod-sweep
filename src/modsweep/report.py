@@ -48,28 +48,34 @@ def source_lines(manifests: list[Manifest]) -> list[str]:
     return lines
 
 
-def status_lines(results: list[FileResult]) -> list[str]:
+# --- data rows (consumed by the text renderers below and by the GUI) --------
+
+
+def status_rows(results: list[FileResult]) -> list[tuple[str, int, int]]:
+    """(status label, file count, total bytes) for each status, fixed order."""
     by_status: dict[str, list[FileResult]] = defaultdict(list)
     for r in results:
         by_status[r.status].append(r)
-
-    lines = [f"{'Status':<28} {'Files':>8} {'Size':>14}", "-" * 54]
-    total_size = 0
-    for status in (KEEP_VERIFIED, KEEP, STALE, UNCLAIMED, META_ORPHAN):
-        group = by_status.get(status, [])
-        size = sum(r.disk.size for r in group)
-        total_size += size
-        lines.append(f"{_LABELS[status]:<28} {len(group):>8,} {_gb(size):>14}")
-    lines.append("-" * 54)
-    lines.append(f"{'Total':<28} {len(results):>8,} {_gb(total_size):>14}")
-
-    reclaim = sum(r.disk.size for r in results if r.status in _CANDIDATE_STATUSES)
-    lines.append("")
-    lines.append(f"Potential reclaim (all candidates): {_gb(reclaim)}")
-    return lines
+    return [
+        (
+            _LABELS[status],
+            len(by_status.get(status, [])),
+            sum(r.disk.size for r in by_status.get(status, [])),
+        )
+        for status in (KEEP_VERIFIED, KEEP, STALE, UNCLAIMED, META_ORPHAN)
+    ]
 
 
-def claim_lines(results: list[FileResult]) -> list[str]:
+def reclaim_bytes(results: list[FileResult]) -> int:
+    return sum(r.disk.size for r in results if r.status in _CANDIDATE_STATUSES)
+
+
+def claim_rows(results: list[FileResult]) -> list[tuple[str, int, int, int]]:
+    """(source, claimed, unique, unique bytes), most-claimed first.
+
+    Sidecars are excluded; unique = claimed by no other source, i.e. what
+    retiring that source would free.
+    """
     claims: Counter[str] = Counter()
     unique_claims: Counter[str] = Counter()
     unique_bytes: Counter[str] = Counter()
@@ -81,32 +87,67 @@ def claim_lines(results: list[FileResult]) -> list[str]:
         if len(r.claimed_by) == 1:
             unique_claims[r.claimed_by[0]] += 1
             unique_bytes[r.claimed_by[0]] += r.disk.size
-    if not claims:
-        return []
-    lines = [
-        "Disk archives claimed per manifest"
-        " (unique = claimed by no other source; what retiring it would free):",
-        f"  {'claimed':>8} {'unique':>8} {'unique size':>13}  source",
+    return [
+        (label, count, unique_claims[label], unique_bytes[label])
+        for label, count in claims.most_common()
     ]
-    for label, count in claims.most_common():
-        lines.append(
-            f"  {count:>8,} {unique_claims[label]:>8,}"
-            f" {_gb(unique_bytes[label]):>13}  {label}"
-        )
-    return lines
 
 
-def candidate_lines(results: list[FileResult], limit: int = 15) -> list[str]:
+def candidate_rows(
+    results: list[FileResult], limit: int | None = None
+) -> list[tuple[int, str, str]]:
+    """(bytes, status, rel path) for non-sidecar candidates, largest first."""
     candidates = sorted(
         (r for r in results if r.status in (STALE, UNCLAIMED) and not r.sidecar),
         key=lambda r: r.disk.size,
         reverse=True,
     )
-    if not candidates:
+    if limit is not None:
+        candidates = candidates[:limit]
+    return [(r.disk.size, r.status, r.disk.rel) for r in candidates]
+
+
+# --- text renderers ----------------------------------------------------------
+
+
+def status_lines(results: list[FileResult]) -> list[str]:
+    lines = [f"{'Status':<28} {'Files':>8} {'Size':>14}", "-" * 54]
+    total_files = total_size = 0
+    for label, count, size in status_rows(results):
+        total_files += count
+        total_size += size
+        lines.append(f"{label:<28} {count:>8,} {_gb(size):>14}")
+    lines.append("-" * 54)
+    lines.append(f"{'Total':<28} {total_files:>8,} {_gb(total_size):>14}")
+    lines.append("")
+    lines.append(f"Potential reclaim (all candidates): {_gb(reclaim_bytes(results))}")
+    return lines
+
+
+def claim_lines(results: list[FileResult]) -> list[str]:
+    rows = claim_rows(results)
+    if not rows:
+        return []
+    width = max(len("source"), max(len(label) for label, *_ in rows))
+    lines = [
+        "Disk archives claimed per manifest"
+        " (unique = claimed by no other source; what retiring it would free):",
+        f"  {'source':<{width}} {'claimed':>8} {'unique':>8} {'unique size':>13}",
+    ]
+    for label, claimed, unique, unique_size in rows:
+        lines.append(
+            f"  {label:<{width}} {claimed:>8,} {unique:>8,} {_gb(unique_size):>13}"
+        )
+    return lines
+
+
+def candidate_lines(results: list[FileResult], limit: int = 15) -> list[str]:
+    rows = candidate_rows(results, limit)
+    if not rows:
         return []
     lines = ["Largest deletion candidates:"]
-    for r in candidates[:limit]:
-        lines.append(f"  {_gb(r.disk.size):>12}  [{r.status}]  {r.disk.rel}")
+    for size, status, rel in rows:
+        lines.append(f"  {_gb(size):>12}  [{status}]  {rel}")
     return lines
 
 

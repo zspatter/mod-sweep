@@ -227,12 +227,17 @@ uv run modsweep-gui          # optional: pass a config path
 ```
 
 The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
-(Open Config... to switch), lists the active sources with all resolution
-announcements in the console pane, and offers Report, Hash Candidates (with
-progress), Sweep dry run, and Sweep + Apply (confirmation dialog; restore
-stays on the CLI). No custom palette or stylesheet is set anywhere, so the
-interface follows the system light/dark theme natively. Actions run on a
-worker thread; the window stays responsive.
+(Open Config... to switch) and lists the active sources. The Report tab
+renders the classification as sortable tables (status summary, per-source
+claims with the unique-holdings column, all deletion candidates); the Log
+tab collects resolution announcements and action output, and opens with a
+short workflow walkthrough — every button also carries a hover tooltip.
+Actions (Report, Hash Candidates with progress, Sweep dry run, Sweep +
+Apply with confirmation) run on a worker thread, including source
+refreshing, so the window never blocks; state-changing actions re-run the
+report automatically. No custom palette or stylesheet is set anywhere, so
+the interface follows the system light/dark theme natively. Restore and
+purge stay on the CLI.
 
 ## Testing
 
@@ -246,7 +251,13 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 
 ## Roadmap
 
-- GUI growth: exclude/pin toggles per source, restore/purge actions,
-  streaming announcements instead of end-of-action replay.
+- GUI config editor: generate `modsweep.toml` from folder/file pickers;
+  build up the source list and toggle each source on/off individually
+  (exclude), including choosing which bundled Nolvus versions to keep —
+  the pinning mechanics already support "latest plus these specific
+  versions" (list a bundled file explicitly next to the directory), the
+  GUI just needs to surface it.
+- GUI growth: restore/purge actions, streaming announcements instead of
+  end-of-action replay.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.

@@ -5,9 +5,13 @@ from modsweep.manifest import Manifest
 from modsweep.matcher import KEEP, KEEP_VERIFIED, STALE, UNCLAIMED, FileResult
 from modsweep.report import (
     candidate_lines,
+    candidate_rows,
     claim_lines,
+    claim_rows,
+    reclaim_bytes,
     source_lines,
     status_lines,
+    status_rows,
     summarize,
     write_csv,
 )
@@ -36,16 +40,40 @@ def test_status_lines_counts_sizes_and_reclaim():
     assert "Potential reclaim (all candidates): 3.00 GB" in text
 
 
-def test_claim_lines_unique_attribution():
+def test_claim_rows_unique_attribution():
     results = [
         fr("a.7z", 1 * GB, KEEP, ["L1"]),  # unique to L1
         fr("b.7z", 1 * GB, KEEP, ["L1", "L2"]),  # shared
     ]
+    assert claim_rows(results) == [
+        ("L1", 2, 1, 1 * GB),
+        ("L2", 1, 0, 0),
+    ]
+
+
+def test_claim_lines_put_source_first():
+    results = [fr("a.7z", 1 * GB, KEEP, ["List With Spaces"])]
     lines = claim_lines(results)
-    l1_row = next(line for line in lines if line.endswith("L1"))
-    l2_row = next(line for line in lines if line.endswith("L2"))
-    assert "2" in l1_row and "1.00 GB" in l1_row  # 2 claimed, 1 unique / 1 GB
-    assert l2_row.split()[:2] == ["1", "0"]  # 1 claimed, 0 unique
+    assert lines[1].split()[0] == "source"  # header order
+    assert lines[2].strip().startswith("List With Spaces")
+
+
+def test_status_rows_and_reclaim():
+    results = [
+        fr("a.7z", 1 * GB, KEEP_VERIFIED),
+        fr("b.7z", 2 * GB, UNCLAIMED),
+    ]
+    rows = {label: (count, size) for label, count, size in status_rows(results)}
+    assert rows["Keep (hash verified)"] == (1, 1 * GB)
+    assert rows["Unclaimed (candidate)"] == (1, 2 * GB)
+    assert reclaim_bytes(results) == 2 * GB
+
+
+def test_candidate_rows_limit_none_returns_all():
+    results = [fr(f"f{i}.7z", (i + 1) * GB, UNCLAIMED) for i in range(20)]
+    assert len(candidate_rows(results)) == 20
+    assert candidate_rows(results)[0][2] == "f19.7z"
+    assert len(candidate_rows(results, limit=3)) == 3
 
 
 def test_claim_lines_skip_sidecars_and_empty():
