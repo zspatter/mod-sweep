@@ -42,8 +42,10 @@ snapshots = []
 exclude = []
 
 # Keep only the newest version of each list (grouped by list name).
-# Superseded manifests are announced; excluding the newest version pins an
-# older one. Set false to whitelist every version found.
+# Superseded manifests are announced. Explicit file entries are pinned:
+# listing a specific .wabbajack (even redundantly next to its directory)
+# marks that version intentional, and latest_only never drops it. Set false
+# to whitelist every version found.
 latest_only = false
 
 [quarantine]

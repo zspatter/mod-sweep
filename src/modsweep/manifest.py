@@ -66,26 +66,34 @@ def version_key(version: str) -> list[tuple[int, int, str]]:
 
 def latest_only(
     manifests: list[Manifest],
-) -> tuple[list[Manifest], list[tuple[Manifest, Manifest]]]:
+    pinned: frozenset[str] | set[str] = frozenset(),
+) -> tuple[
+    list[Manifest], list[tuple[Manifest, Manifest]], list[tuple[Manifest, Manifest]]
+]:
     """Keep only the newest version of each list, grouped by list name.
 
-    Returns (kept, superseded) where superseded pairs are (dropped, winner).
-    Sources without a version (e.g. [NoDelete] instances) form single-member
-    groups and always survive.
+    `pinned` labels (explicitly-listed sources) are never dropped, but they
+    still compete as versions — pinning the newest of a group does not
+    resurrect older ones. Returns (kept, superseded, pinned_kept) where the
+    pair lists hold (manifest, group_winner). Sources without a version
+    (e.g. [NoDelete] instances) form single-member groups and always survive.
     """
     winners: dict[str, Manifest] = {}
-    order: list[str] = []
     for m in manifests:
         key = (m.name or m.label).lower()
         current = winners.get(key)
-        if current is None:
+        if current is None or version_key(m.version) > version_key(current.version):
             winners[key] = m
-            order.append(key)
-        elif version_key(m.version) > version_key(current.version):
-            winners[key] = m
-    superseded = [
-        (m, winners[(m.name or m.label).lower()])
-        for m in manifests
-        if m is not winners[(m.name or m.label).lower()]
-    ]
-    return [winners[k] for k in order], superseded
+    kept: list[Manifest] = []
+    superseded: list[tuple[Manifest, Manifest]] = []
+    pinned_kept: list[tuple[Manifest, Manifest]] = []
+    for m in manifests:
+        winner = winners[(m.name or m.label).lower()]
+        if m is winner:
+            kept.append(m)
+        elif m.label in pinned:
+            kept.append(m)
+            pinned_kept.append((m, winner))
+        else:
+            superseded.append((m, winner))
+    return kept, superseded, pinned_kept

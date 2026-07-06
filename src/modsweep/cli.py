@@ -116,7 +116,10 @@ def main(argv: list[str] | None = None) -> int:
 @dataclass
 class Resolved:
     downloads: Path
-    sources: list[tuple[str, Path]]  # (kind, path); kind: wabbajack|nolvus|mo2|mo2-all
+    # (kind, path, pinned); kind: wabbajack|nolvus|mo2|mo2-all|snapshot.
+    # pinned = the user named this file/install itself (not found via a
+    # directory walk); latest-only filtering never drops pinned sources.
+    sources: list[tuple[str, Path, bool]]
     exclude: list[str]
     latest_only: bool
     cache: Path
@@ -134,10 +137,10 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
         sources += _expand_installs(args.mo2_all or [], "mo2-all")
     else:
         sources = _expand_wabbajack(cfg.wabbajack)
-        sources += [("nolvus", p) for p in cfg.nolvus]
+        sources += [("nolvus", p, True) for p in cfg.nolvus]
         sources += _expand_installs(cfg.installs, "mo2")
         sources += _expand_installs(cfg.recovery, "mo2-all")
-        sources += [("snapshot", p) for p in cfg.snapshots]
+        sources += [("snapshot", p, True) for p in cfg.snapshots]
     if need_manifests and not sources:
         raise SystemExit("error: no manifest sources (-m) given and none in config")
     return Resolved(
@@ -300,13 +303,14 @@ _LOADERS = {
 
 
 def load_manifests(
-    sources: list[tuple[str, Path]],
+    sources: list[tuple[str, Path, bool]],
     exclude: list[str] | None = None,
     latest_only: bool = False,
 ) -> list[Manifest]:
     exclude = exclude or []
     manifests: dict[str, Manifest] = {}
-    for kind, path in sources:
+    pinned: set[str] = set()
+    for kind, path, pin in sources:
         pattern = _excluded_by(path.name, exclude)
         if pattern:
             print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
@@ -324,15 +328,22 @@ def load_manifests(
             # Installs matter only when they carry custom additions.
             continue
         # The same list version often exists under several Wabbajack installs;
-        # keep the first copy of each label.
+        # keep the first copy of each label — but a pin from any copy sticks.
         manifests.setdefault(manifest.label, manifest)
+        if pin:
+            pinned.add(manifest.label)
     result = list(manifests.values())
     if latest_only:
         from .manifest import latest_only as filter_latest
 
-        result, superseded = filter_latest(result)
+        result, superseded, pinned_kept = filter_latest(result, pinned)
         for old, winner in superseded:
             print(f"superseded by {winner.label}: {old.label}", file=sys.stderr)
+        for m, winner in pinned_kept:
+            print(
+                f"pinned (explicit entry) despite {winner.label}: {m.label}",
+                file=sys.stderr,
+            )
     return result
 
 
@@ -345,60 +356,60 @@ def _excluded_by(name: str, exclude: list[str]) -> str | None:
     return None
 
 
-def _expand_wabbajack(paths: list[Path]) -> list[tuple[str, Path]]:
-    out: list[tuple[str, Path]] = []
+def _expand_wabbajack(paths: list[Path]) -> list[tuple[str, Path, bool]]:
+    out: list[tuple[str, Path, bool]] = []
     for path in paths:
         if path.is_dir():
-            out.extend(("wabbajack", p) for p in sorted(path.rglob("*.wabbajack")))
+            out.extend(("wabbajack", p, False) for p in sorted(path.rglob("*.wabbajack")))
         else:
-            out.append(("wabbajack", path))
+            out.append(("wabbajack", path, True))
     return out
 
 
-def _expand_installs(paths: list[Path], kind: str) -> list[tuple[str, Path]]:
+def _expand_installs(paths: list[Path], kind: str) -> list[tuple[str, Path, bool]]:
     """An entry is either an MO2 install itself, or a folder whose direct
     children are installs. Anything else is warned about, never guessed at."""
-    out: list[tuple[str, Path]] = []
+    out: list[tuple[str, Path, bool]] = []
     for path in paths:
         if _is_mo2_instance(path):
-            out.append((kind, path))
+            out.append((kind, path, True))
             continue
         instances = [
             c for c in sorted(path.iterdir()) if c.is_dir() and _is_mo2_instance(c)
         ] if path.is_dir() else []
         if instances:
-            out.extend((kind, c) for c in instances)
+            out.extend((kind, c, False) for c in instances)
         else:
             print(f"warning: {path}: no MO2 install (mods/) found", file=sys.stderr)
     return out
 
 
-def _expand_cli(paths: list[Path]) -> list[tuple[str, Path]]:
+def _expand_cli(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     """CLI -m convenience: infer the source type per argument."""
-    out: list[tuple[str, Path]] = []
+    out: list[tuple[str, Path, bool]] = []
     for path in paths:
         if not path.is_dir():
             suffix = path.suffix.lower()
             if suffix == ".wabbajack":
-                out.append(("wabbajack", path))
+                out.append(("wabbajack", path, True))
             elif suffix == ".json":
                 kind = "snapshot" if snapshot_mod.is_snapshot(path) else "wabbajack"
-                out.append((kind, path))
+                out.append((kind, path, True))
             elif suffix == ".xml":
-                out.append(("nolvus", path))
+                out.append(("nolvus", path, True))
             else:
                 print(f"warning: {path}: unrecognized manifest type", file=sys.stderr)
             continue
         if _is_mo2_instance(path):
-            out.append(("mo2", path))
+            out.append(("mo2", path, True))
             continue
         instances = [
             c for c in sorted(path.iterdir()) if c.is_dir() and _is_mo2_instance(c)
         ]
         if instances:
-            out.extend(("mo2", c) for c in instances)
+            out.extend(("mo2", c, False) for c in instances)
         else:
-            out.extend(("wabbajack", p) for p in sorted(path.rglob("*.wabbajack")))
+            out.extend(("wabbajack", p, False) for p in sorted(path.rglob("*.wabbajack")))
     return out
 
 

@@ -63,7 +63,12 @@ path); that list is the thing to review. To retire one:
 
 - set `latest_only = true` (or pass `--latest-only`) to keep just the newest
   version of every list, grouped by list name — superseded manifests are
-  announced, and excluding the newest version pins an older one; or
+  announced. Explicit file entries override the filter: naming a specific
+  `.wabbajack` (even redundantly alongside its directory) pins that version
+  as intentional, so "latest by default, plus these specific versions" is
+  one directory line plus one line per pin. Pinned files still compete as
+  versions — pinning the newest does not resurrect older ones. Excluding
+  the newest version also pins an older one; or
 - add an `exclude` glob in `modsweep.toml` (or ad-hoc via `--exclude`),
   matched case-insensitively against the list label (`'LoreRim 2.2*'`) or
   the manifest file name — the .wabbajack stays on disk for reinstatement; or
