@@ -1,2 +1,12 @@
 notes.md
 resources/
+
+# python
+.venv/
+__pycache__/
+*.egg-info/
+build/
+
+# modsweep local state
+.modsweep/
+reports/

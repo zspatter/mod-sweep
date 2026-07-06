@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modsweep"
+version = "0.1.0"
+description = "Whitelist-driven cleanup for shared Skyrim modlist archive directories (Wabbajack + Nolvus)"
+requires-python = ">=3.12"
+dependencies = ["xxhash>=3.4"]
+
+[project.scripts]
+modsweep = "modsweep.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
