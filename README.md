@@ -93,6 +93,15 @@ protected. The failure mode is deliberately asymmetric: forgetting a list
 keeps its files; only explicit action (exclusion, or an old version losing
 under `latest_only`) exposes files for sweeping.
 
+**Drift detection.** Config-driven runs of `report` and `sweep` record the
+active set in `.modsweep/state.json`. When a previously-active manifest can
+no longer be found on disk (e.g. Wabbajack was uninstalled, taking its
+`downloaded_mod_lists` along), the next run warns —
+`previously-active source vanished: <label>` — instead of silently treating
+its archives as unclaimed. The warning fires once; the baseline then accepts
+the new set. Ad-hoc `-m` runs neither check nor update the baseline, so
+what-if experiments cannot clobber it.
+
 Example — "latest of everything, except keep old LoreRim too, and retire
 NGVO entirely":
 
@@ -166,11 +175,11 @@ remove any file whose hash was never checked against the whitelist.
 - **Protection lasts only while the manifest is discoverable.** Wabbajack
   sweeps rely on the `.wabbajack` files being present: uninstalling
   Wabbajack, or deleting the files themselves, implicitly retires the
-  affected list versions. Their uniquely-claimed archives become sweep
-  candidates on the next run — and unlike `exclude` or `latest_only`, this
-  gets no announcement, because a manifest that is not found is simply not
-  known about. Before uninstalling Wabbajack, either copy the `.wabbajack`
-  files somewhere the config points at or run `modsweep snapshot`.
+  affected list versions and their uniquely-claimed archives become sweep
+  candidates on the next run. Drift detection (see Source resolution)
+  warns once when this happens, but cannot bring the whitelist back —
+  before uninstalling Wabbajack, either copy the `.wabbajack` files
+  somewhere the config points at or run `modsweep snapshot`.
 - An installation alone still yields a *name-level* whitelist: every MO2 mod
   folder's `meta.ini` records `installationFile=`. Use `--mo2-all <install>`
   for lists whose .wabbajack is gone (no version discrimination beyond the

@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config, mo2, nolvus, snapshot as snapshot_mod, sweep as sweep_mod, wabbajack
+from . import config, mo2, nolvus, snapshot as snapshot_mod, state, sweep as sweep_mod, wabbajack
 from .cache import HashCache
 from .manifest import Manifest
 from .matcher import match
@@ -175,6 +175,7 @@ class Resolved:
     latest_only: bool
     cache: Path
     quarantine: Path | None
+    from_config: bool  # sources came from config, not ad-hoc CLI -m args
 
 
 def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
@@ -182,7 +183,8 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
     downloads = args.downloads or cfg.downloads
     if downloads is None:
         raise SystemExit("error: no --downloads given and none in config")
-    if args.manifests or args.mo2_all:
+    from_config = not (args.manifests or args.mo2_all)
+    if not from_config:
         # Explicit CLI sources replace the config's source set entirely.
         sources = _expand_cli(args.manifests or [])
         sources += _expand_installs(args.mo2_all or [], "mo2-all")
@@ -201,6 +203,7 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
         latest_only=args.latest_only or cfg.latest_only,
         cache=args.cache or cfg.cache or DEFAULT_CACHE,
         quarantine=getattr(args, "quarantine", None) or cfg.quarantine,
+        from_config=from_config,
     )
 
 
@@ -369,12 +372,33 @@ def _is_mo2_instance(path: Path) -> bool:
 # --- commands ----------------------------------------------------------------
 
 
+def _check_source_drift(res: Resolved, manifests: list[Manifest]) -> None:
+    """Warn when a previously-active source can no longer be found on disk.
+
+    Only config-driven runs check and update the baseline — an ad-hoc -m
+    subset would both false-positive and clobber it.
+    """
+    if not res.from_config:
+        return
+    state_path = res.cache.parent / state.STATE_NAME
+    previous = state.read(state_path)
+    for label, source in state.vanished(previous, manifests):
+        print(
+            f"warning: previously-active source vanished: {label} "
+            f"({source} no longer exists) - its archives are no longer "
+            f"protected; restore the file or point the config at a snapshot",
+            file=sys.stderr,
+        )
+    state.write(state_path, manifests)
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     res = _resolve(args)
     manifests = load_manifests(res.sources, res.exclude, res.latest_only)
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
+    _check_source_drift(res, manifests)
     files = scan(res.downloads)
     cache = HashCache(res.cache)
     try:
@@ -454,6 +478,7 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
+    _check_source_drift(res, manifests)
     plan = _build_plan(res, manifests)
     _print_plan(plan, quarantine)
     if not plan.ready:
