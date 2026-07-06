@@ -54,7 +54,12 @@ def main(argv: list[str] | None = None) -> int:
         "update-manifests": _cmd_update_manifests,
         "check-update": _cmd_check_update,
     }
-    return handlers[args.cmd](args)
+    try:
+        return handlers[args.cmd](args)
+    except ValueError as exc:
+        # Library code reports user-input problems as ValueError so the GUI
+        # can show them inline; the CLI boundary turns them into clean exits.
+        raise SystemExit(f"error: {exc}") from exc
 
 
 # --- argument parsing -------------------------------------------------------
@@ -655,7 +660,7 @@ def _quarantine_dir_for(downloads: Path, quarantine: Path | None) -> Path:
         quarantine = downloads.parent / "_quarantine"
     quarantine = Path(quarantine)
     if quarantine.resolve().is_relative_to(Path(downloads).resolve()):
-        raise SystemExit("error: quarantine dir must not be inside the downloads dir")
+        raise ValueError("quarantine dir must not be inside the downloads dir")
     return quarantine
 
 

@@ -562,7 +562,9 @@ class Worker(QThread):
         try:
             with redirect_stderr(stream):
                 self._fn(self)
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
+            # SystemExit must not escape a QThread: unhandled it takes down
+            # the whole process, not just this action.
             self.failed.emit(str(exc))
         finally:
             stream.flush_pending()
@@ -847,7 +849,19 @@ class MainWindow(QMainWindow):
 
     # --- actions ---------------------------------------------------------------
 
+    def _require_downloads(self) -> Path | None:
+        """Friendly gate for actions that need a downloads dir configured."""
+        if self.cfg.downloads is None:
+            self._on_status(
+                "error: no downloads directory configured - set it via Edit Config"
+            )
+            return None
+        return Path(self.cfg.downloads)
+
     def run_report(self) -> None:
+        if self._require_downloads() is None:
+            return
+
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
             files = scan(self.cfg.downloads)
@@ -864,6 +878,9 @@ class MainWindow(QMainWindow):
         self._start(action, "Building report")
 
     def run_hash_candidates(self) -> None:
+        if self._require_downloads() is None:
+            return
+
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
             files = [f for f in scan(self.cfg.downloads) if not f.is_meta]
@@ -891,6 +908,8 @@ class MainWindow(QMainWindow):
         self._start(action, "Hashing candidates", then_report=True)
 
     def run_sweep(self, apply: bool) -> None:
+        if self._require_downloads() is None:
+            return
         if apply:  # pragma: no cover - native dialog
             answer = QMessageBox.question(
                 self,
@@ -940,6 +959,8 @@ class MainWindow(QMainWindow):
         self._start(action, "Sweeping", then_report=apply)
 
     def run_restore(self, batch: Path | None = None) -> None:
+        if self._require_downloads() is None:
+            return
         if batch is None:  # pragma: no cover - native dialog
             batch = self._pick_batch("Restore which quarantine batch?")
             if batch is None:
@@ -957,6 +978,8 @@ class MainWindow(QMainWindow):
         self._start(action, "Restoring", then_report=True)
 
     def run_purge(self, batch: Path | None = None) -> None:
+        if self._require_downloads() is None:
+            return
         if batch is None:  # pragma: no cover - native dialog
             batch = self._pick_batch("Purge which quarantine batch?")
             if batch is None:
@@ -1008,6 +1031,8 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["xdg-open", str(path.parent)])
 
     def quarantine_file(self, rel: str, purge: bool = False) -> None:
+        if self._require_downloads() is None:
+            return
         subset = self._results_for(rel)
         if not subset:
             self._on_status(f"error: {rel} is not in the last report - run Report first")
@@ -1495,7 +1520,11 @@ def main() -> int:  # pragma: no cover - event loop
     app.setApplicationDisplayName("Mod Sweep")
     app.setWindowIcon(_app_icon())
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    window = MainWindow(config_path)
+    try:
+        window = MainWindow(config_path)
+    except ValueError as exc:  # e.g. a config path that does not exist
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     window.show()
     return app.exec()
 

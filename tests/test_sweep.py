@@ -118,7 +118,7 @@ def test_missing_quarantine_dir_lists_nothing(tmp_path):
 def test_restore_rejects_non_batch_dir(tmp_path):
     not_a_batch = tmp_path / "random"
     not_a_batch.mkdir()
-    with pytest.raises(SystemExit, match="not a sweep batch"):
+    with pytest.raises(ValueError, match="not a sweep batch"):
         sweep_mod.restore(not_a_batch)
 
 

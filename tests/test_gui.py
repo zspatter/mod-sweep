@@ -16,6 +16,19 @@ from modsweep import sweep as sweep_mod  # noqa: E402
 from modsweep.gui import MainWindow  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _reset_pipeline_logger():
+    """Each MainWindow raises the shared 'modsweep' logger to INFO and adds
+    a handler; restore both so test outcomes don't depend on file order."""
+    import logging
+
+    logger = logging.getLogger("modsweep")
+    level, handlers = logger.level, list(logger.handlers)
+    yield
+    logger.setLevel(level)
+    logger.handlers = handlers
+
+
 def app():
     return QApplication.instance() or QApplication([])
 
@@ -872,3 +885,53 @@ def test_tables_sort_numerically(tmp_path):
     table.sortItems(0)  # ascending by size: numeric, not lexicographic
     assert "small.7z" in table.item(0, 2).text()
     assert "big.7z" in table.item(1, 2).text()
+
+
+def test_systemexit_in_worker_surfaces_instead_of_killing_process(tmp_path):
+    """SystemExit escaping a QThread would take down the whole GUI; the
+    worker must catch it and report like any other failure."""
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+
+    def action(worker):
+        raise SystemExit("quarantine dir must not be inside the downloads dir")
+
+    win._start(action, "Exploding")
+    wait_idle(win)
+    assert "quarantine dir must not be inside" in win.console.toPlainText()
+    assert win.buttons["report"].isEnabled()
+
+
+def test_quarantine_inside_downloads_reports_error_in_gui(tmp_path):
+    cfg_path = build_config(tmp_path)
+    text = cfg_path.read_text(encoding="utf-8")
+    dl = tmp_path / "downloads"
+    text = text.replace(
+        f"dir = '{tmp_path / 'quarantine'}'", f"dir = '{dl / 'q'}'"
+    )
+    cfg_path.write_text(text, encoding="utf-8")
+    app()
+    win = window(cfg_path)
+    wait_idle(win)
+    win.run_sweep(apply=False)
+    wait_idle(win)
+    assert "error: quarantine dir must not be inside" in win.console.toPlainText()
+    assert win.buttons["report"].isEnabled()  # window alive, busy state cleared
+
+
+def test_actions_refuse_without_downloads_dir(tmp_path):
+    make_wabbajack(tmp_path / "a.wabbajack", "A", "1.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"cache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{tmp_path / 'a.wabbajack'}']\n",
+        encoding="utf-8",
+    )
+    app()
+    win = window(cfg)
+    wait_idle(win)
+    before = win._worker
+    win.run_report()
+    assert win._worker is before  # no worker started
+    assert "no downloads directory configured" in win.console.toPlainText()

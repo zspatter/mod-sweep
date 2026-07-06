@@ -39,7 +39,7 @@ def test_missing_default_config_is_empty(tmp_path, monkeypatch):
 
 
 def test_explicit_missing_config_errors(tmp_path):
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="config not found"):
         config.load(tmp_path / "nope.toml")
 
 

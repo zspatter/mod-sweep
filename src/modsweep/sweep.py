@@ -153,7 +153,7 @@ def restore(batch: Path) -> tuple[int, int, int]:
     batch = Path(batch)
     manifest = batch / MANIFEST_NAME
     if not manifest.exists():
-        raise SystemExit(f"error: {manifest} not found - not a sweep batch")
+        raise ValueError(f"{manifest} not found - not a sweep batch")
     moved = skipped = missing = 0
     with open(manifest, encoding="utf-8-sig") as fh:
         rows = list(csv.DictReader(fh))

@@ -47,7 +47,7 @@ def load(path: Path | None) -> Config:
         if not path.exists():
             return Config()
     elif not path.exists():
-        raise SystemExit(f"error: config not found: {path}")
+        raise ValueError(f"config not found: {path}")
 
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     base = path.resolve().parent
