@@ -12,10 +12,17 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Protocol
 
-from .cache import HashCache
 from .manifest import Entry, Manifest
 from .scanner import DiskFile
+
+
+class HashLookup(Protocol):
+    """Anything that can answer 'what are this file's cached hashes?'
+    (HashCache, its bulk snapshot, or a test stub)."""
+
+    def get(self, disk: DiskFile) -> tuple[str, int] | None: ...
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +85,7 @@ class _Index:
 def match(
     files: list[DiskFile],
     manifests: list[Manifest],
-    cache: HashCache | None = None,
+    cache: HashLookup | None = None,
 ) -> list[FileResult]:
     start = time.perf_counter()
     index = _Index(manifests)
@@ -99,7 +106,9 @@ def match(
             key = lower_rel.get(disk.base_rel.lower())
             base = results.get(key) if key is not None else None
         if base is None:
-            out.append(FileResult(disk, META_ORPHAN, note="no archive next to this .meta", sidecar=True))
+            out.append(
+                FileResult(disk, META_ORPHAN, note="no archive next to this .meta", sidecar=True)
+            )
         else:
             out.append(
                 FileResult(
@@ -120,7 +129,7 @@ def match(
 def _classify(
     disk: DiskFile,
     index: _Index,
-    cache: HashCache | None,
+    cache: HashLookup | None,
 ) -> FileResult:
     candidates = index.by_name.get(disk.name.lower(), [])
     cached = cache.get(disk) if cache is not None else None
@@ -196,11 +205,12 @@ def _classify_unhashed(
             sorted({label for label, _ in size_matches}),
             _location_note(disk, size_matches),
         )
+    plural = "y" if len(candidates) == 1 else "ies"
     return FileResult(
         disk,
         STALE,
         note=_join(
-            f"name matches {len(candidates)} entr{'y' if len(candidates) == 1 else 'ies'} but size differs",
+            f"name matches {len(candidates)} entr{plural} but size differs",
             _location_note(disk, candidates),
         ),
     )

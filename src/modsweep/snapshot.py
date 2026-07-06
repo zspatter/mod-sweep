@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .manifest import Entry, Manifest
@@ -31,7 +31,7 @@ def save(manifest: Manifest, out_dir: Path) -> Path:
         "version": manifest.version,
         "machine": manifest.machine,
         "source": str(manifest.source_path),
-        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "entries": [
             {
                 "name": e.file_name,

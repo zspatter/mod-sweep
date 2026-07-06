@@ -11,7 +11,9 @@ def test_package_dir_contains_shipped_manifest():
 
 
 def test_user_dir_is_per_user_and_writable_location(tmp_path, monkeypatch):
-    monkeypatch.setattr(bundled.sys, "platform", "win32")
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert bundled.user_dir() == tmp_path / "modsweep" / "manifests" / "nolvus"
 

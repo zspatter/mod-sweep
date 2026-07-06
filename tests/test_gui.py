@@ -2,18 +2,19 @@
 (CI runs without PySide6); run headless via the offscreen platform."""
 
 import os
+import typing
 
 import pytest
 
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from helpers import make_wabbajack, wj_hash
+from PySide6.QtWidgets import QApplication, QMessageBox
 
-from helpers import make_wabbajack, wj_hash  # noqa: E402
-from modsweep import gui as gui_mod  # noqa: E402
-from modsweep import sweep as sweep_mod  # noqa: E402
-from modsweep.gui import MainWindow  # noqa: E402
+from modsweep import gui as gui_mod
+from modsweep import sweep as sweep_mod
+from modsweep.gui import MainWindow
 
 
 @pytest.fixture(autouse=True)
@@ -160,7 +161,7 @@ def test_purge_requires_confirmation_and_deletes(tmp_path, monkeypatch):
 
     # Declining the warning leaves the batch alone.
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "warning",
+        QMessageBox, "warning",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
     win.run_purge(batch.path)
@@ -168,7 +169,7 @@ def test_purge_requires_confirmation_and_deletes(tmp_path, monkeypatch):
 
     # Accepting it purges permanently.
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "warning",
+        QMessageBox, "warning",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
     win.run_purge(batch.path)
@@ -218,14 +219,14 @@ def test_delete_single_file_confirms_then_purges(tmp_path, monkeypatch):
     wait_idle(win)
 
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "warning",
+        QMessageBox, "warning",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
     win.delete_file("junk.7z")
     assert (dl / "junk.7z").exists()  # declined: nothing happened
 
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "warning",
+        QMessageBox, "warning",
         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
     win.delete_file("junk.7z")
@@ -395,7 +396,7 @@ def test_purge_confirmation_flags_young_batches(tmp_path, monkeypatch):
 
     prompts = []
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "warning",
+        QMessageBox, "warning",
         staticmethod(
             lambda parent, title, text, *a, **k: (
                 prompts.append(text), QMessageBox.StandardButton.No
@@ -525,12 +526,12 @@ class FakeSettings:
     """Stands in for QSettings so welcome-suppression is testable without
     touching the real registry/plist."""
 
-    store: dict = {}
+    store: typing.ClassVar[dict] = {}
 
     def __init__(self, *args):
         pass
 
-    def value(self, key, default=False, type=bool):  # noqa: A002 - Qt's API
+    def value(self, key, default=False, type=bool):
         return FakeSettings.store.get(key, default)
 
     def setValue(self, key, value):
@@ -548,7 +549,7 @@ def test_welcome_popup_shows_once_when_suppressed(tmp_path, monkeypatch):
         box.checkBox().setChecked(True)  # the user ticks "don't show again"
         return 0
 
-    monkeypatch.setattr(gui_mod.QMessageBox, "exec", fake_exec)
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
 
     cfg = build_config(tmp_path)
     first = MainWindow(cfg, show_welcome=True)
@@ -569,7 +570,7 @@ def test_welcome_popup_repeats_until_suppressed(tmp_path, monkeypatch):
     monkeypatch.setattr(gui_mod, "QSettings", FakeSettings)
     shown = []
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "exec",
+        QMessageBox, "exec",
         lambda box: (shown.append(box.windowTitle()), 0)[1],  # checkbox left alone
     )
     cfg = build_config(tmp_path)
@@ -757,7 +758,7 @@ def test_action_results_pop_up(tmp_path, monkeypatch):
     win.show_result_popups = True
     seen = []
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "information",
+        QMessageBox, "information",
         staticmethod(lambda parent, title, text, *a, **k: seen.append(text)),
     )
     win.run_sweep(apply=False)
@@ -846,7 +847,7 @@ def test_update_check_offers_release_page(tmp_path, monkeypatch):
     )
     prompts = []
     monkeypatch.setattr(
-        gui_mod.QMessageBox, "question",
+        QMessageBox, "question",
         staticmethod(
             lambda parent, title, text, *a, **k: (
                 prompts.append(text), QMessageBox.StandardButton.No

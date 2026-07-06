@@ -15,6 +15,7 @@ Safety rules:
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import logging
 import shutil
@@ -22,10 +23,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-log = logging.getLogger(__name__)
-
 from .cache import HashCache
 from .matcher import META_ORPHAN, STALE, UNCLAIMED, FileResult
+
+log = logging.getLogger(__name__)
 
 CANDIDATE_STATUSES = (STALE, UNCLAIMED, META_ORPHAN)
 MANIFEST_NAME = "sweep-manifest.csv"
@@ -186,10 +187,8 @@ def _tidy_batch(batch: Path) -> None:
         reverse=True,
     )
     for directory in directories:
-        try:
+        with contextlib.suppress(OSError):
             directory.rmdir()  # only succeeds when empty
-        except OSError:
-            pass
     remaining = [p for p in batch.rglob("*") if p.is_file()]
     if all(p.name == MANIFEST_NAME for p in remaining):
         shutil.rmtree(batch)

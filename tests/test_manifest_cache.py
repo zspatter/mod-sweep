@@ -1,6 +1,7 @@
 import os
 
 from helpers import make_wabbajack
+
 from modsweep import manifest_cache
 from modsweep.cli import _expand_wabbajack, load_manifests
 from modsweep.wabbajack import load as load_wj
@@ -20,7 +21,8 @@ def test_store_load_roundtrip_and_invalidation(tmp_path):
     assert manifest_cache.load(cache_dir, wj, "nolvus") is None
 
     # touching the source invalidates
-    os.utime(wj, ns=(wj.stat().st_mtime_ns + 10**9,) * 2)
+    bumped = wj.stat().st_mtime_ns + 10**9
+    os.utime(wj, ns=(bumped, bumped))
     assert manifest_cache.load(cache_dir, wj, "wabbajack") is None
 
 

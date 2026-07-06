@@ -11,7 +11,15 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .manifest import Manifest
-from .matcher import KEEP, KEEP_VERIFIED, META_ORPHAN, STALE, UNCLAIMED, FileResult
+from .matcher import (
+    KEEP,
+    KEEP_VERIFIED,
+    META_ORPHAN,
+    STALE,
+    UNCLAIMED,
+    FileResult,
+    status_order,
+)
 
 _LABELS = {
     KEEP_VERIFIED: "Keep (hash verified)",
@@ -157,7 +165,7 @@ def write_csv(results: list[FileResult], path: Path) -> None:
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
         writer.writerow(["rel_path", "status", "size_bytes", "claimed_by", "note"])
-        for r in sorted(results, key=lambda r: (r.status, -r.disk.size)):
+        for r in sorted(results, key=lambda r: (status_order(r.status), -r.disk.size)):
             writer.writerow(
                 [r.disk.rel, r.status, r.disk.size, "; ".join(r.claimed_by), r.note]
             )

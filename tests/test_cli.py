@@ -285,7 +285,7 @@ def e2e_fixture(tmp_path):
 
 
 def test_sweep_delete_requires_apply(tmp_path):
-    dl, common = e2e_fixture(tmp_path)
+    _, common = e2e_fixture(tmp_path)
     with pytest.raises(SystemExit):
         main(["sweep", *common, "--delete"])
 

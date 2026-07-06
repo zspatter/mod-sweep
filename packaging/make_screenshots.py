@@ -15,11 +15,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QFont, QFontDatabase  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QApplication
 
-from modsweep.gui import ConfigEditorDialog, MainWindow  # noqa: E402
+from modsweep.gui import ConfigEditorDialog, MainWindow
+
 
 def _load_omit_terms() -> tuple[str, ...]:
     """Substrings of list labels to hide from published screenshots.

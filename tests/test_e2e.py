@@ -11,8 +11,8 @@ import sqlite3
 from datetime import datetime
 
 import pytest
-
 from helpers import make_mo2_install, make_nolvus, make_wabbajack, wj_hash
+
 from modsweep import sweep as sweep_mod
 from modsweep.cli import main
 

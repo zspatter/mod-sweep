@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from modsweep import snapshot
 from modsweep.manifest import Entry, Manifest
 
@@ -41,11 +43,8 @@ def test_is_snapshot_sniff(tmp_path):
 def test_load_rejects_non_snapshot(tmp_path):
     p = tmp_path / "x.json"
     p.write_text("{}", encoding="utf-8")
-    try:
+    with pytest.raises(ValueError, match="not a modsweep snapshot"):
         snapshot.load(p)
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
 
 
 def test_slug_filenames_are_safe(tmp_path):

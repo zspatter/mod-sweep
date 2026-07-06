@@ -18,9 +18,11 @@ import io
 import logging
 import subprocess
 import sys
+from collections.abc import Iterator
 from contextlib import redirect_stderr
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 try:
     from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, QUrl, Signal
@@ -28,11 +30,13 @@ try:
         QBrush,
         QColor,
         QDesktopServices,
+        QFont,
+        QIcon,
+        QPainter,
         QPainterPath,
         QPen,
-        QPolygonF,
+        QPixmap,
     )
-    from PySide6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -73,7 +77,9 @@ except ImportError:  # pragma: no cover - exercised only without the extra
 
 from dataclasses import replace
 
-from . import __version__, config, remote, snapshot as snapshot_mod, state, sweep as sweep_mod
+from . import __version__, config, remote, state
+from . import snapshot as snapshot_mod
+from . import sweep as sweep_mod
 from .cache import HashCache
 from .cli import (
     DEFAULT_CACHE,
@@ -159,6 +165,10 @@ STATUS_HELP = {
 
 def _gb(size: float) -> str:
     return f"{size / (1 << 30):,.2f} GB"
+
+
+# config keys that pin a manifest file kind when listed explicitly
+_PIN_KEYS = {"wabbajack": "wabbajack", "nolvus": "nolvus", "snapshot": "snapshots"}
 
 
 class LogBridge(QObject):
@@ -311,7 +321,7 @@ class NumericItem(QTableWidgetItem):
         super().__init__(text)
         self._value = value
 
-    def __lt__(self, other) -> bool:  # noqa: D105
+    def __lt__(self, other) -> bool:
         if isinstance(other, NumericItem):
             return self._value < other._value
         return super().__lt__(other)
@@ -374,11 +384,13 @@ class PathListEditor(QWidget):
             self.pattern_edit.clear()
 
     def _add_keyword(self) -> None:
-        if self._keyword not in self.values():
+        if self._keyword is not None and self._keyword not in self.values():
             self.list.addItem(self._keyword)
 
     def _add_file(self) -> None:  # pragma: no cover - native dialog
-        chosen, _ = QFileDialog.getOpenFileName(self, "Add file", "", self._file_filter)
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, "Add file", "", self._file_filter or ""
+        )
         if chosen:
             self.list.addItem(chosen)
 
@@ -859,12 +871,13 @@ class MainWindow(QMainWindow):
         return Path(self.cfg.downloads)
 
     def run_report(self) -> None:
-        if self._require_downloads() is None:
+        downloads = self._require_downloads()
+        if downloads is None:
             return
 
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
-            files = scan(self.cfg.downloads)
+            files = scan(downloads)
             cache = HashCache(self._cache_path())
             try:
                 results = match(files, manifests, cache)
@@ -878,12 +891,13 @@ class MainWindow(QMainWindow):
         self._start(action, "Building report")
 
     def run_hash_candidates(self) -> None:
-        if self._require_downloads() is None:
+        downloads = self._require_downloads()
+        if downloads is None:
             return
 
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
-            files = [f for f in scan(self.cfg.downloads) if not f.is_meta]
+            files = [f for f in scan(downloads) if not f.is_meta]
             cache = HashCache(self._cache_path())
             try:
                 results = match(files, manifests, cache)
@@ -908,7 +922,8 @@ class MainWindow(QMainWindow):
         self._start(action, "Hashing candidates", then_report=True)
 
     def run_sweep(self, apply: bool) -> None:
-        if self._require_downloads() is None:
+        downloads = self._require_downloads()
+        if downloads is None:
             return
         if apply:  # pragma: no cover - native dialog
             answer = QMessageBox.question(
@@ -922,8 +937,8 @@ class MainWindow(QMainWindow):
 
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
-            quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
-            files = scan(self.cfg.downloads)
+            quarantine = _quarantine_dir_for(downloads, self.cfg.quarantine)
+            files = scan(downloads)
             cache = HashCache(self._cache_path())
             try:
                 results = match(files, manifests, cache)
@@ -1010,7 +1025,10 @@ class MainWindow(QMainWindow):
         item = self.candidates_table.itemAt(pos)
         if item is None:
             return
-        rel = self.candidates_table.item(item.row(), 2).text()
+        rel_item = self.candidates_table.item(item.row(), 2)
+        if rel_item is None:
+            return
+        rel = rel_item.text()
         menu = QMenu(self)
         menu.addAction("Open in file manager", lambda: self._reveal(rel))
         menu.addSeparator()
@@ -1019,7 +1037,9 @@ class MainWindow(QMainWindow):
         menu.exec(self.candidates_table.viewport().mapToGlobal(pos))
 
     def _reveal(self, rel: str) -> None:  # pragma: no cover - launches OS shell
-        self._reveal_path(Path(self.cfg.downloads) / rel)
+        downloads = self._require_downloads()
+        if downloads is not None:
+            self._reveal_path(downloads / rel)
 
     @staticmethod
     def _reveal_path(path: Path) -> None:  # pragma: no cover - launches OS shell
@@ -1031,7 +1051,8 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["xdg-open", str(path.parent)])
 
     def quarantine_file(self, rel: str, purge: bool = False) -> None:
-        if self._require_downloads() is None:
+        downloads = self._require_downloads()
+        if downloads is None:
             return
         subset = self._results_for(rel)
         if not subset:
@@ -1063,7 +1084,7 @@ class MainWindow(QMainWindow):
             if not plan.ready:
                 worker.summary.emit(f"{rel} is not an eligible candidate.")
                 return
-            quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
+            quarantine = _quarantine_dir_for(downloads, self.cfg.quarantine)
             batch = sweep_mod.execute(plan, quarantine, tag="file")
             if purge:
                 sweep_mod.purge_batch(batch)
@@ -1134,6 +1155,8 @@ class MainWindow(QMainWindow):
         self._start(action, "Exporting snapshots")
 
     def _quarantine_batches(self) -> list[sweep_mod.Batch]:
+        if self.cfg.downloads is None:  # nowhere to restore to anyway
+            return []
         quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
         return sweep_mod.list_batches(quarantine)
 
@@ -1181,7 +1204,7 @@ class MainWindow(QMainWindow):
     # --- rendering ---------------------------------------------------------------
 
     def _on_payload(self, message: object) -> None:
-        kind, data = message
+        kind, data = cast("tuple[str, Any]", message)
         if kind == "sources":
             self._show_sources(data)
         elif kind == "report":
@@ -1233,12 +1256,16 @@ class MainWindow(QMainWindow):
         self._suppress_source_signal = False
         self.apply_selection_btn.setEnabled(False)
 
-    def _iter_source_items(self):
+    def _iter_source_items(self) -> Iterator[QTreeWidgetItem]:
         for i in range(self.sources_list.topLevelItemCount()):
             top = self.sources_list.topLevelItem(i)
+            if top is None:  # pragma: no cover - Qt guarantees the range
+                continue
             yield top
             for j in range(top.childCount()):
-                yield top.child(j)
+                child = top.child(j)
+                if child is not None:
+                    yield child
 
     def _source_item(self, info: SourceInfo) -> QTreeWidgetItem:
         m = info.manifest
@@ -1308,7 +1335,7 @@ class MainWindow(QMainWindow):
         info = self._last_infos.get(label)
         pinnable = (
             info is not None
-            and _infer_file_kind(info.manifest.source_path) in self._PIN_KEYS
+            and _infer_file_kind(info.manifest.source_path) in _PIN_KEYS
         )
         if source_state in ("active", "superseded") and pinnable:
             menu.addAction(
@@ -1332,8 +1359,6 @@ class MainWindow(QMainWindow):
         )
         menu.exec(self.sources_list.viewport().mapToGlobal(pos))
 
-    _PIN_KEYS = {"wabbajack": "wabbajack", "nolvus": "nolvus", "snapshot": "snapshots"}
-
     def pin_source(self, label: str) -> None:
         """Add the source's manifest file as an explicit (pinned) config entry."""
         info = self._last_infos.get(label)
@@ -1342,7 +1367,7 @@ class MainWindow(QMainWindow):
             return
         path = info.manifest.source_path
         kind = _infer_file_kind(path)
-        key = self._PIN_KEYS.get(kind or "")
+        key = _PIN_KEYS.get(kind or "")
         if key is None:
             self._on_status(f"error: cannot pin {label}: {path.name} is not a "
                             f"pinnable manifest file")
@@ -1351,7 +1376,7 @@ class MainWindow(QMainWindow):
         if path in values:
             self._on_status(f"{label} is already pinned.")
             return
-        self.apply_config(replace(self.cfg, **{key: values + [path]}))
+        self.apply_config(replace(self.cfg, **{key: [*values, path]}))
 
     def unpin_source(self, label: str) -> None:
         """Remove the explicit config entry; the source stays only if a
@@ -1361,7 +1386,7 @@ class MainWindow(QMainWindow):
             self._on_status(f"error: {label} is not in the current source list")
             return
         path = info.manifest.source_path
-        key = self._PIN_KEYS.get(_infer_file_kind(path) or "")
+        key = _PIN_KEYS.get(_infer_file_kind(path) or "")
         values = getattr(self.cfg, key) if key else []
         if key is None or path not in values:
             self._on_status(f"{label} is not pinned by an explicit entry.")
@@ -1374,7 +1399,7 @@ class MainWindow(QMainWindow):
         if any(is_exact_exclude(e, label) for e in self.cfg.exclude):
             return
         self.apply_config(
-            replace(self.cfg, exclude=self.cfg.exclude + [exact_exclude_pattern(label)])
+            replace(self.cfg, exclude=[*self.cfg.exclude, exact_exclude_pattern(label)])
         )
 
     def reinstate_source(self, label: str) -> None:

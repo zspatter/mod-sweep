@@ -9,26 +9,37 @@ Defaults come from modsweep.toml (see config.py); CLI arguments override it.
 from __future__ import annotations
 
 import argparse
+import glob
 import logging
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from . import (
+    __version__,
     bundled,
     config,
     manifest_cache,
     mo2,
     nolvus,
-    snapshot as snapshot_mod,
+    remote,
     state,
-    sweep as sweep_mod,
     wabbajack,
 )
+from . import (
+    snapshot as snapshot_mod,
+)
+from . import (
+    sweep as sweep_mod,
+)
 from .cache import HashCache
+from .hashutil import hash_file
 from .manifest import Manifest
-from .matcher import match
+from .manifest import latest_only as filter_latest
+from .matcher import STALE, UNCLAIMED, match
 from .report import summarize, write_csv
 from .scanner import DiskFile, scan
 
@@ -40,7 +51,7 @@ log = logging.getLogger(__name__)
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     logging.basicConfig(
-        level=getattr(logging, getattr(args, "log_level", "warning").upper()),
+        level=getattr(logging, args.log_level.upper()),
         format="%(levelname)s %(name)s: %(message)s",
         force=True,
     )
@@ -71,27 +82,38 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Whitelist-driven cleanup for shared modlist archive directories.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
-    common = _common_options()
+    logged = _log_options()  # every subcommand takes --log-level
+    common = _common_options(logged)
     _add_report(sub, common)
     _add_hash(sub, common)
     _add_sweep(sub, common)
-    _add_restore(sub)
+    _add_restore(sub, logged)
     _add_snapshot(sub, common)
-    _add_purge(sub)
+    _add_purge(sub, logged)
     sub.add_parser(
-        "update-manifests",
+        "update-manifests", parents=[logged],
         help="Download newly published bundled manifests (Nolvus) from the "
         "project repository into the per-user data dir",
     )
     sub.add_parser(
-        "check-update",
+        "check-update", parents=[logged],
         help="Check the project's GitHub releases for a newer version",
     )
     return parser
 
 
-def _common_options() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
+def _log_options() -> argparse.ArgumentParser:
+    logged = argparse.ArgumentParser(add_help=False)
+    logged.add_argument(
+        "--log-level", default="warning",
+        choices=("debug", "info", "warning", "error"),
+        help="Diagnostic verbosity on stderr (timings, per-source detail)",
+    )
+    return logged
+
+
+def _common_options(logged: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False, parents=[logged])
     common.add_argument(
         "--config", type=Path,
         help=f"Config file (default: ./{config.DEFAULT_NAME} if present)",
@@ -119,11 +141,6 @@ def _common_options() -> argparse.ArgumentParser:
         "--latest-only", action="store_true",
         help="Keep only the newest version of each list (grouped by list "
         "name); superseded manifests are announced",
-    )
-    common.add_argument(
-        "--log-level", default="warning",
-        choices=("debug", "info", "warning", "error"),
-        help="Diagnostic verbosity on stderr (timings, per-source detail)",
     )
     return common
 
@@ -165,8 +182,10 @@ def _add_sweep(sub, common) -> None:
     )
 
 
-def _add_restore(sub) -> None:
-    rst = sub.add_parser("restore", help="Move a quarantined sweep batch back")
+def _add_restore(sub, logged) -> None:
+    rst = sub.add_parser(
+        "restore", parents=[logged], help="Move a quarantined sweep batch back"
+    )
     rst.add_argument("batch", type=Path, help="Batch directory created by sweep")
 
 
@@ -181,9 +200,9 @@ def _add_snapshot(sub, common) -> None:
     )
 
 
-def _add_purge(sub) -> None:
+def _add_purge(sub, logged) -> None:
     prg = sub.add_parser(
-        "purge",
+        "purge", parents=[logged],
         help="Permanently delete quarantine batches older than a trust "
         "period (dry run unless --apply)",
     )
@@ -315,8 +334,9 @@ def _load_source(
     if pattern:
         print(f"excluded ({pattern}): {path.name}", file=sys.stderr)
         return None
-    cacheable = parse_cache is not None and kind in _PARSE_CACHEABLE
-    manifest = manifest_cache.load(parse_cache, path, kind) if cacheable else None
+    if parse_cache is not None and kind not in _PARSE_CACHEABLE:
+        parse_cache = None  # only file-backed kinds cache their parses
+    manifest = manifest_cache.load(parse_cache, path, kind) if parse_cache else None
     if manifest is None:
         start = time.perf_counter()
         try:
@@ -328,7 +348,7 @@ def _load_source(
             "loaded %s (%s): %d entries in %.2fs",
             manifest.label, kind, len(manifest.entries), time.perf_counter() - start,
         )
-        if cacheable:
+        if parse_cache is not None:
             manifest_cache.store(parse_cache, path, kind, manifest)
     pattern = _excluded_by(manifest.label, exclude)
     if pattern:
@@ -343,8 +363,6 @@ def _load_source(
 def _apply_latest_filter(
     manifests: list[Manifest], pinned: set[str]
 ) -> list[Manifest]:
-    from .manifest import latest_only as filter_latest
-
     kept, superseded, pinned_kept = filter_latest(manifests, pinned)
     for old, winner in superseded:
         print(f"superseded by {winner.label}: {old.label}", file=sys.stderr)
@@ -357,8 +375,6 @@ def _apply_latest_filter(
 
 
 def _excluded_by(name: str, exclude: list[str]) -> str | None:
-    from fnmatch import fnmatchcase
-
     for pattern in exclude:
         if fnmatchcase(name.lower(), pattern.lower()):
             return pattern
@@ -368,8 +384,6 @@ def _excluded_by(name: str, exclude: list[str]) -> str | None:
 def exact_exclude_pattern(label: str) -> str:
     """A glob matching exactly this label (brackets etc. escaped, so
     '[NoDelete] X' style labels survive fnmatch)."""
-    import glob
-
     return glob.escape(label)
 
 
@@ -405,8 +419,6 @@ def survey_sources(
         if pattern:
             flags[m.label] = ("excluded", pattern)
     if latest_only:
-        from .manifest import latest_only as filter_latest
-
         remaining = [m for m in manifests if m.label not in flags]
         _, superseded, pinned_kept = filter_latest(remaining, pinned)
         for old, winner in superseded:
@@ -591,7 +603,7 @@ def _cmd_hash(args: argparse.Namespace) -> int:
         if args.only_candidates:
             files = _candidate_files(files, res, cache)
         pending = [f for f in files if cache.get(f) is None]
-        if args.limit:
+        if args.limit is not None:
             pending = pending[: args.limit]
         total_bytes = sum(f.size for f in pending)
         print(
@@ -609,8 +621,6 @@ def _cmd_hash(args: argparse.Namespace) -> int:
 def _candidate_files(
     files: list[DiskFile], res: Resolved, cache: HashCache
 ) -> list[DiskFile]:
-    from .matcher import STALE, UNCLAIMED
-
     manifests = load_manifests(
         res.sources, res.exclude, res.latest_only, res.cache.parent / "manifest_cache"
     )
@@ -622,8 +632,6 @@ def _candidate_files(
 
 
 def _hash_files(pending: list[DiskFile], total_bytes: int, cache: HashCache) -> None:
-    from .hashutil import hash_file
-
     done_bytes = 0
     start = time.monotonic()
     for i, disk in enumerate(pending, 1):
@@ -745,8 +753,6 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
 
 
 def _cmd_purge(args: argparse.Namespace) -> int:
-    from datetime import datetime, timedelta
-
     cfg = config.load(args.config)
     quarantine = args.quarantine or cfg.quarantine
     if quarantine is None:
@@ -770,31 +776,27 @@ def _cmd_purge(args: argparse.Namespace) -> int:
 
 
 def _cmd_update_manifests(args: argparse.Namespace) -> int:
-    from . import remote
-
     try:
         downloaded = remote.update_manifests()
-    except OSError as exc:
-        raise SystemExit(f"error: manifest update failed: {exc}")
+    except (OSError, ValueError) as exc:  # ValueError: malformed API response
+        raise SystemExit(f"error: manifest update failed: {exc}") from exc
     if not downloaded:
         print("Bundled manifests are up to date.")
         return 0
     for name in downloaded:
         print(f"  downloaded {name}")
     print(
-        f"{len(downloaded)} new manifest(s) in {remote.bundled.user_dir()} - "
+        f"{len(downloaded)} new manifest(s) in {bundled.user_dir()} - "
         f"the 'bundled' config entry picks them up automatically."
     )
     return 0
 
 
 def _cmd_check_update(args: argparse.Namespace) -> int:
-    from . import __version__, remote
-
     try:
         info = remote.check_update(__version__)
-    except OSError as exc:
-        raise SystemExit(f"error: update check failed: {exc}")
+    except (OSError, ValueError) as exc:  # ValueError: malformed API response
+        raise SystemExit(f"error: update check failed: {exc}") from exc
     if info is None:
         print(f"modsweep v{__version__} is up to date.")
         return 0
@@ -812,8 +814,6 @@ def _purge_threshold(args: argparse.Namespace, cfg: config.Config) -> int:
 
 
 def _print_batch_verdicts(batches, cutoff, days: int) -> list[sweep_mod.Batch]:
-    from datetime import datetime
-
     aged = [b for b in batches if b.created < cutoff]
     for b in batches:
         age = (datetime.now() - b.created).days
