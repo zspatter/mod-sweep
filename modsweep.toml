@@ -1,0 +1,42 @@
+# modsweep.toml — the authoritative record of active sources of truth.
+# Retiring a list = removing its line here, then:
+#   uv run modsweep report        (preview what becomes unclaimed)
+#   uv run modsweep sweep         (dry run)
+#   uv run modsweep sweep --apply (quarantine the candidates)
+# Source types are explicit — nothing in this file is auto-detected.
+# CLI arguments override this file. Relative paths resolve against this
+# file's directory.
+
+downloads = 'F:\Modlists\Skyrim\downloads'
+
+# Wabbajack sources of truth: .wabbajack files (or bare modlist.json), or
+# directories searched recursively for .wabbajack. Every list version found
+# stays whitelisted; retire an old version by pointing at files individually.
+wabbajack = [
+    'C:\Games\modding_tools\Wabbajack',
+]
+
+# Nolvus installer manifests (InstallPackage.xml, retrieved from the author).
+nolvus = [
+    'resources\InstallPackage.xml',
+]
+
+# MO2 installations checked for [NoDelete]-prefixed custom additions.
+# An entry is a single install (contains mods/) or a folder whose direct
+# children are installs. On scattered setups, list each install explicitly.
+installs = [
+    'D:\Modlists\Skyrim',
+]
+
+# Installs whitelisted whole, by archive NAME only — recovery for lists whose
+# .wabbajack manifest is gone. Weaker than a real manifest.
+recovery = []
+
+# Retire lists without touching their .wabbajack files: case-insensitive
+# globs matched against the list label ("LoreRim 2.2.11") or the manifest
+# file name. Everything found and not excluded is considered active.
+exclude = []
+
+[quarantine]
+# Same volume as downloads => sweeps are instant renames, not copies.
+dir = 'F:\Modlists\Skyrim\_quarantine'
