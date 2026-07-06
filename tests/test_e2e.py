@@ -289,3 +289,249 @@ def test_snapshots_classify_identically_to_sources(tmp_path):
     for s in snaps:
         snap_args += ["-m", str(s)]
     assert statuses(tmp_path, snap_args) == statuses(tmp_path, args)
+
+
+# --- config-driven resolution flows ------------------------------------------
+
+
+def write_config(tmp_path, dl, extra="") -> list[str]:
+    """A config file naming the same tree build_tree makes via -m args."""
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"""
+downloads = '{dl}'
+cache = '{tmp_path / "cache.sqlite"}'
+wabbajack = ['{tmp_path / "list.wabbajack"}']
+nolvus = ['{tmp_path / "InstallPackage.xml"}']
+installs = ['{tmp_path / "Inst"}']
+{extra}
+""",
+        encoding="utf-8",
+    )
+    return ["--config", str(cfg)]
+
+
+def test_exclude_by_label_retires_list_and_announces(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    args = write_config(tmp_path, dl, extra="exclude = ['List 1.0']\n")
+    assert main(["report", *args]) == 0
+    captured = capsys.readouterr()
+    assert "excluded (List 1.0): List 1.0" in captured.err
+    # The wabbajack list is retired: its unique files read as candidates.
+    assert "List 1.0" not in captured.out
+    assert "claimed.7z" in captured.out  # now a deletion candidate
+
+
+def test_exclude_by_file_name_skips_before_parsing(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    args = write_config(tmp_path, dl)
+    assert main(["report", *args, "--exclude", "list.wabbajack"]) == 0
+    err = capsys.readouterr().err
+    assert "excluded (list.wabbajack): list.wabbajack" in err
+
+
+def test_cli_exclude_extends_config_excludes(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    args = write_config(tmp_path, dl, extra="exclude = ['List*']\n")
+    assert main(["report", *args, "--exclude", "Guide*"]) == 0
+    err = capsys.readouterr().err
+    assert "excluded (List*)" in err
+    assert "excluded (Guide*): Guide 1.0" in err
+
+
+def test_latest_only_supersedes_and_pin_rescues_through_main(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    (tmp_path / "old").mkdir()
+    old = make_wabbajack(tmp_path / "old" / "list.wabbajack", "List", "0.9", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"""
+downloads = '{dl}'
+cache = '{tmp_path / "cache.sqlite"}'
+latest_only = true
+wabbajack = ['{tmp_path}']
+""",
+        encoding="utf-8",
+    )
+    assert main(["report", "--config", str(cfg)]) == 0
+    captured = capsys.readouterr()
+    assert "superseded by List 1.0: List 0.9" in captured.err
+
+    # Naming the old file directly pins it through the filter.
+    cfg.write_text(
+        f"""
+downloads = '{dl}'
+cache = '{tmp_path / "cache.sqlite"}'
+latest_only = true
+wabbajack = ['{tmp_path}', '{old}']
+""",
+        encoding="utf-8",
+    )
+    assert main(["report", "--config", str(cfg)]) == 0
+    captured = capsys.readouterr()
+    assert "pinned (explicit entry) despite List 1.0: List 0.9" in captured.err
+    assert "List 0.9" in captured.out  # active alongside the winner
+
+
+def test_empty_install_contributes_nothing(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    make_mo2_install(tmp_path, "EmptyInst", {"plain mod": "whatever.7z"})
+    write_config(tmp_path, dl)
+    cfg = tmp_path / "modsweep.toml"
+    inst = tmp_path / "Inst"
+    empty = tmp_path / "EmptyInst"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8").replace(
+            f"installs = ['{inst}']",
+            f"installs = ['{inst}', '{empty}']",
+        ),
+        encoding="utf-8",
+    )
+    assert main(["report", "--config", str(cfg)]) == 0
+    out = capsys.readouterr().out
+    assert "[NoDelete] Inst" in out
+    assert "EmptyInst" not in out  # no [NoDelete] mods: dropped from evaluation
+
+
+# --- CLI edges and error paths ------------------------------------------------
+
+
+def test_report_with_no_resolvable_sources_exits_1(tmp_path, capsys):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    make_mo2_install(tmp_path, "EmptyInst", {"plain mod": "whatever.7z"})
+    cfg = tmp_path / "modsweep.toml"
+    cache = tmp_path / "c.sqlite"
+    empty = tmp_path / "EmptyInst"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{cache}'\ninstalls = ['{empty}']\n",
+        encoding="utf-8",
+    )
+    assert main(["report", "--config", str(cfg)]) == 1
+    assert "No manifests found." in capsys.readouterr().err
+    assert main(["sweep", "--config", str(cfg)]) == 1
+    assert main(["snapshot", "--config", str(cfg)]) == 1
+
+
+def test_unrecognized_manifest_type_warns_then_errors(tmp_path, capsys):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    stray = tmp_path / "notes.txt"
+    stray.write_text("not a manifest", encoding="utf-8")
+    with pytest.raises(SystemExit, match="no manifest sources"):
+        main(["report", "--downloads", str(dl), "-m", str(stray)])
+    assert "unrecognized manifest type" in capsys.readouterr().err
+
+
+def test_installs_entry_without_mo2_layout_warns(tmp_path, capsys):
+    dl, _ = build_tree(tmp_path)
+    plain = tmp_path / "plain-folder"
+    plain.mkdir()
+    write_config(tmp_path, dl)
+    cfg = tmp_path / "modsweep.toml"
+    inst = tmp_path / "Inst"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8").replace(
+            f"installs = ['{inst}']",
+            f"installs = ['{plain}']",
+        ),
+        encoding="utf-8",
+    )
+    assert main(["report", "--config", str(cfg)]) == 0
+    assert "no MO2 install (mods/) found" in capsys.readouterr().err
+
+
+def test_dash_m_directory_of_installs_expands_each(tmp_path, capsys):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    (dl / "a.7z").write_bytes(b"A")
+    (dl / "b.7z").write_bytes(b"B")
+    parent = tmp_path / "installs"
+    make_mo2_install(parent, "One", {"[NoDelete] 1 a": "a.7z"})
+    make_mo2_install(parent, "Two", {"[NoDelete] 2 b": "b.7z"})
+    assert main([
+        "report", "--downloads", str(dl), "-m", str(parent),
+        "--cache", str(tmp_path / "c.sqlite"),
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "[NoDelete] One" in out and "[NoDelete] Two" in out
+
+
+def test_restore_reports_skipped_and_missing(tmp_path, capsys):
+    dl, args = build_tree(tmp_path)
+    quarantine = tmp_path / "q"
+    assert main(["hash", *args]) == 0
+    assert main(["sweep", *args, "--quarantine", str(quarantine), "--apply"]) == 0
+    (batch,) = sweep_mod.list_batches(quarantine)
+
+    (dl / "junk.7z").write_bytes(b"NEW OCCUPANT")  # occupies an original path
+    (batch.path / "stale.7z").unlink()  # vanished from the batch
+
+    capsys.readouterr()
+    assert main(["restore", str(batch.path)]) == 0
+    out = capsys.readouterr().out
+    assert "1 skipped: original path already occupied" in out
+    assert "1 listed in the manifest were not found in the batch" in out
+
+
+def test_sweep_plan_truncates_after_ten_largest(tmp_path, capsys):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    for i in range(12):
+        (dl / f"junk{i:02}.7z").write_bytes(bytes([i]) * (i + 1))
+    wj = make_wabbajack(tmp_path / "l.wabbajack", "L", "1.0", [])
+    args = [
+        "--downloads", str(dl), "-m", str(wj),
+        "--cache", str(tmp_path / "c.sqlite"),
+    ]
+    assert main(["hash", *args]) == 0
+    capsys.readouterr()
+    assert main(["sweep", *args, "--quarantine", str(tmp_path / "q")]) == 0
+    assert "... and 2 more archives (+ sidecars)" in capsys.readouterr().out
+
+
+def test_sweep_defaults_quarantine_next_to_downloads(tmp_path, capsys):
+    dl, args = build_tree(tmp_path)
+    capsys.readouterr()
+    assert main(["sweep", *args]) == 0  # dry run: no --quarantine anywhere
+    assert str(tmp_path / "_quarantine") in capsys.readouterr().out
+
+
+def test_hash_interrupt_reports_resumable(tmp_path, capsys, monkeypatch):
+    from modsweep import cli as cli_mod
+
+    dl, args = build_tree(tmp_path)
+
+    def boom(pending, total_bytes, cache):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_mod, "_hash_files", boom)
+    assert main(["hash", *args]) == 0
+    assert "progress is cached; rerun to resume" in capsys.readouterr().out
+
+
+def test_purge_with_empty_quarantine_reports_none(tmp_path, capsys):
+    quarantine = tmp_path / "q"
+    quarantine.mkdir()
+    assert main(["purge", "--quarantine", str(quarantine)]) == 0
+    assert "No sweep batches under" in capsys.readouterr().out
+
+
+def test_check_update_malformed_response_exits_cleanly(monkeypatch):
+    import urllib.request
+
+    class FakeResponse:
+        def read(self):
+            return b"<html>rate limited</html>"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda req, timeout: FakeResponse()
+    )
+    with pytest.raises(SystemExit, match="update check failed"):
+        main(["check-update"])
