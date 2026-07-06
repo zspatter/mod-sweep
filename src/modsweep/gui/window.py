@@ -1,87 +1,47 @@
-"""Cross-platform GUI over the modsweep pipeline (PySide6).
-
-A thin front-end: it reads the same modsweep.toml, resolves sources through
-the same pipeline as the CLI (announcements included), and renders the same
-report data as sortable tables. Deliberately, no custom palette or
-stylesheet is set anywhere, so Qt's default style follows the operating
-system's light/dark theme (Qt 6.5+ tracks the OS color scheme natively on
-Windows and macOS).
-
-Requires the `gui` extra: `uv sync --extra gui`, then `modsweep-gui
-[config.toml]`.
-"""
+"""The Mod Sweep main window: buttons, source tree, report tables."""
 
 from __future__ import annotations
 
-import functools
-import io
 import logging
 import subprocess
 import sys
 from collections.abc import Iterator
-from contextlib import redirect_stderr
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
-try:
-    from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, QUrl, Signal
-    from PySide6.QtGui import (
-        QBrush,
-        QColor,
-        QDesktopServices,
-        QFont,
-        QIcon,
-        QPainter,
-        QPainterPath,
-        QPen,
-        QPixmap,
-    )
-    from PySide6.QtWidgets import (
-        QApplication,
-        QCheckBox,
-        QDialog,
-        QDialogButtonBox,
-        QFileDialog,
-        QFormLayout,
-        QHBoxLayout,
-        QInputDialog,
-        QLabel,
-        QLineEdit,
-        QListWidget,
-        QMainWindow,
-        QMenu,
-        QMessageBox,
-        QPlainTextEdit,
-        QProgressBar,
-        QPushButton,
-        QSpinBox,
-        QSplitter,
-        QTableWidget,
-        QTableWidgetItem,
-        QTabWidget,
-        QTreeWidget,
-        QTreeWidgetItem,
-        QVBoxLayout,
-        QWidget,
-    )
-except ImportError:  # pragma: no cover - exercised only without the extra
-    print(
-        "modsweep-gui requires the GUI dependencies.\n"
-        '  installed tool:  uv tool install "modsweep[gui]"  '
-        '(or pipx install "modsweep[gui]")\n'
-        "  source checkout: uv sync --extra gui",
-        file=sys.stderr,
-    )
-    raise
+from PySide6.QtCore import QSettings, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from dataclasses import replace
-
-from . import __version__, config, remote, state
-from . import snapshot as snapshot_mod
-from . import sweep as sweep_mod
-from .cache import HashCache
-from .cli import (
+from .. import __version__, config, remote, state
+from .. import snapshot as snapshot_mod
+from .. import sweep as sweep_mod
+from ..cache import HashCache
+from ..cli import (
     DEFAULT_CACHE,
     SourceInfo,
     _infer_file_kind,
@@ -92,75 +52,15 @@ from .cli import (
     load_manifests,
     survey_sources,
 )
-from .hashutil import hash_file
-from .manifest import Manifest, version_key
-from .matcher import STALE, UNCLAIMED, match
-from .report import candidate_rows, claim_rows, reclaim_bytes, status_rows
-from .scanner import scan
-
-WELCOME = """\
-Typical flow:
-
-1. Report - classify the downloads directory (read-only)
-2. Hash Candidates - verify candidates by hash (the safety gate for sweeping)
-3. Sweep (Dry Run) - preview exactly what would be quarantined
-4. Sweep + Apply - move candidates to a restorable quarantine batch
-
-Sweeps never hard-delete: batches sit in quarantine until you Restore or
-Purge them. Purge is the only permanent deletion. Hover any button for
-details."""
-
-TOOLTIPS = {
-    "open": "Choose a different modsweep.toml",
-    "edit": "Edit the config in a dialog: downloads folder, sources of "
-    "truth, exclusions, and quarantine settings",
-    "refresh": "Reload the active sources from the config "
-    "(resolution announcements appear in the Log tab)",
-    "report": "Classify every file in the downloads directory against the "
-    "active sources - read-only",
-    "hash": "Hash-check the current deletion candidates; sweeps refuse "
-    "files whose hash was never checked",
-    "dry": "Preview exactly what a sweep would quarantine - nothing is moved",
-    "apply": "Move all candidates to a timestamped quarantine batch "
-    "(undo with Restore)",
-    "restore": "Move a quarantined batch back into the downloads directory",
-    "purge": "PERMANENTLY delete a quarantine batch of YOUR choosing, any "
-    "age - the keep_days trust period only guides the CLI's age-based "
-    "purge, not this button",
-    "snapshot": "Export each active source as a compact whitelist that "
-    "survives deletion of the original manifest - cheap insurance before "
-    "uninstalling Wabbajack",
-}
-
-
-RESOLUTION_HELP = """\
-How sources become active (precedence: exclude > pin > latest-only > active):
-
-- Everything found is active by default. Forgetting a list keeps its files \
-- only explicit action exposes files for sweeping.
-- Folder entries are walked and load implicitly; files you name yourself \
-are PINNED: the latest-only filter never drops them.
-- Excludes retire a list without touching any of its files.
-- latest_only keeps only the newest version of each list (by list name); \
-pinned files still count as versions, so pinning the newest does not \
-resurrect older ones.
-
-Retiring a list:
-1. Untick it under Active sources (writes an exclude for you), add an \
-exclude glob in the editor, or remove its manifest file.
-2. Run Report - its uniquely-claimed archives become candidates.
-3. Sweep when ready. Keep the .wabbajack (or a snapshot) so reinstating \
-later is painless."""
-
-STATUS_HELP = {
-    "keep-verified": "Hash matches an active source - protected",
-    "keep": "Name and size match an active source (or a name-only source "
-    "such as [NoDelete] claims it) - protected",
-    "stale-version": "An active source knows this file name, but not this "
-    "exact file's hash - a superseded or re-uploaded version",
-    "unclaimed": "No active source references this file at all",
-    "meta-orphan": "A .meta sidecar whose archive is gone",
-}
+from ..hashutil import hash_file
+from ..manifest import Manifest, version_key
+from ..matcher import STALE, UNCLAIMED, match
+from ..report import candidate_rows, claim_rows, reclaim_bytes, status_rows
+from ..scanner import scan
+from .editor import ConfigEditorDialog
+from .icons import _app_icon, _ban_icon, _lock_icon, _pin_icon
+from .texts import RESOLUTION_HELP, STATUS_HELP, TOOLTIPS, WELCOME
+from .workers import GuiLogHandler, LogBridge, Worker
 
 
 def _gb(size: float) -> str:
@@ -169,149 +69,6 @@ def _gb(size: float) -> str:
 
 # config keys that pin a manifest file kind when listed explicitly
 _PIN_KEYS = {"wabbajack": "wabbajack", "nolvus": "nolvus", "snapshot": "snapshots"}
-
-
-class LogBridge(QObject):
-    """Marshals text from worker threads onto the UI thread via a signal."""
-
-    message = Signal(str)
-
-
-class GuiLogHandler(logging.Handler):
-    """Streams log records into the Log tab live via the bridge signal
-    (queued across threads by Qt)."""
-
-    def __init__(self, bridge: LogBridge):
-        super().__init__()
-        self.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-        self._bridge = bridge
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self._bridge.message.emit(self.format(record))
-
-
-class _LineStream(io.TextIOBase):
-    """File-like object forwarding complete lines to a callback as written -
-    announcements printed to stderr stream into the Log in real time."""
-
-    def __init__(self, callback):
-        super().__init__()
-        self._callback = callback
-        self._pending = ""
-
-    def write(self, text: str) -> int:
-        self._pending += text
-        while "\n" in self._pending:
-            line, self._pending = self._pending.split("\n", 1)
-            if line.strip():
-                self._callback(line)
-        return len(text)
-
-    def flush_pending(self) -> None:
-        if self._pending.strip():
-            self._callback(self._pending)
-        self._pending = ""
-
-
-def _app_icon() -> QIcon:
-    """A painted broom: deterministic on every platform, unlike emoji fonts.
-
-    Icons are not themed, so fixed colors are fine here (the one place the
-    no-hardcoded-colors rule does not apply).
-    """
-    pixmap = QPixmap(256, 256)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-    # Draw the broom upright - which makes "handle runs straight into the
-    # ferrule's center" trivially true - then tilt the whole painter for the
-    # mid-sweep pose. The rotation cannot break the joint geometry.
-    painter.save()
-    painter.translate(150, 122)
-    painter.rotate(32)  # clockwise: handle to upper right, bristles lower left
-    painter.translate(-128, -122)
-    painter.setPen(QPen(QColor("#8a5a2b"), 20, Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap))
-    painter.drawLine(128, 6, 128, 122)  # handle, taller than the head
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QBrush(QColor("#c9a227")))
-    painter.drawRoundedRect(128 - 24, 114, 48, 28, 7, 7)  # ferrule
-    fan = QPainterPath(QPointF(108, 136))  # bristles dragging into the sweep
-    fan.cubicTo(QPointF(70, 160), QPointF(40, 190), QPointF(46, 214))
-    fan.quadTo(QPointF(90, 230), QPointF(134, 214))
-    fan.quadTo(QPointF(158, 178), QPointF(148, 136))
-    fan.closeSubpath()
-    painter.setBrush(QBrush(QColor("#d9b45b")))
-    painter.drawPath(fan)
-    painter.setPen(QPen(QColor("#a87f31"), 6, Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap))
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    for start, control, end in (
-        ((113, 146), (107, 194), (60, 206)),
-        ((126, 148), (131, 194), (90, 216)),
-        ((138, 146), (150, 186), (120, 212)),
-    ):
-        strand = QPainterPath(QPointF(*start))
-        strand.quadTo(QPointF(*control), QPointF(*end))
-        painter.drawPath(strand)  # strands bow with the fan's swoop
-    painter.restore()
-
-    # Dust rings on the opposite side of the sweep, level with the bristles.
-    painter.setPen(QPen(QColor("#9aa0a6"), 7))
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawEllipse(QPointF(208, 166), 10, 10)
-    painter.drawEllipse(QPointF(188, 202), 6, 6)
-    painter.drawEllipse(QPointF(228, 202), 7, 7)
-    painter.end()
-    return QIcon(pixmap)
-
-
-def _paint_icon(draw) -> QIcon:
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    draw(painter)
-    painter.end()
-    return QIcon(pixmap)
-
-
-@functools.cache
-def _pin_icon() -> QIcon:
-    def draw(p: QPainter) -> None:
-        p.setPen(QPen(QColor("#8a5a2b"), 3, Qt.PenStyle.SolidLine,
-                      Qt.PenCapStyle.RoundCap))
-        p.drawLine(16, 16, 7, 27)  # needle
-        p.setPen(QPen(QColor("#7a6210"), 2))
-        p.setBrush(QBrush(QColor("#e3b341")))
-        p.drawEllipse(14, 4, 13, 13)  # head
-
-    return _paint_icon(draw)
-
-
-@functools.cache
-def _ban_icon() -> QIcon:
-    def draw(p: QPainter) -> None:
-        p.setPen(QPen(QColor("#c0392b"), 3))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(5, 5, 22, 22)
-        p.drawLine(9, 23, 23, 9)
-
-    return _paint_icon(draw)
-
-
-@functools.cache
-def _lock_icon() -> QIcon:
-    def draw(p: QPainter) -> None:
-        p.setPen(QPen(QColor("#8c8c8c"), 3))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawArc(9, 3, 14, 16, 0, 180 * 16)  # shackle
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor("#9a9a9a")))
-        p.drawRoundedRect(7, 13, 18, 14, 3, 3)  # body
-
-    return _paint_icon(draw)
 
 
 class NumericItem(QTableWidgetItem):
@@ -325,261 +82,6 @@ class NumericItem(QTableWidgetItem):
         if isinstance(other, NumericItem):
             return self._value < other._value
         return super().__lt__(other)
-
-
-class PathListEditor(QWidget):
-    """A list of paths (or plain strings) with add/remove buttons."""
-
-    def __init__(self, values: list, file_filter: str | None, allow_dirs: bool,
-                 text_only: bool = False, keyword: str | None = None, parent=None):
-        super().__init__(parent)
-        self._file_filter = file_filter
-        self._keyword = keyword
-        self.list = QListWidget()
-        self.list.setAlternatingRowColors(True)
-        for value in values:
-            self.list.addItem(str(value))
-
-        buttons = QHBoxLayout()
-        if keyword is not None:
-            add_keyword = QPushButton(f"Add '{keyword}'")
-            add_keyword.setToolTip(
-                "The manifests shipped with the app, plus downloaded updates"
-            )
-            add_keyword.clicked.connect(self._add_keyword)
-            buttons.addWidget(add_keyword)
-        if text_only:
-            self.pattern_edit = QLineEdit()
-            self.pattern_edit.setPlaceholderText("glob, e.g. LoreRim 2.2*")
-            add = QPushButton("Add")
-            add.clicked.connect(self._add_text)
-            buttons.addWidget(self.pattern_edit, 1)
-            buttons.addWidget(add)
-        else:
-            if file_filter is not None:
-                add_file = QPushButton("Add File...")
-                add_file.clicked.connect(self._add_file)
-                buttons.addWidget(add_file)
-            if allow_dirs:
-                add_dir = QPushButton("Add Folder...")
-                add_dir.clicked.connect(self._add_dir)
-                buttons.addWidget(add_dir)
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_selected)
-        buttons.addWidget(remove)
-        buttons.addStretch()
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.list)
-        layout.addLayout(buttons)
-
-    def values(self) -> list[str]:
-        return [self.list.item(i).text() for i in range(self.list.count())]
-
-    def _add_text(self) -> None:
-        text = self.pattern_edit.text().strip()
-        if text:
-            self.list.addItem(text)
-            self.pattern_edit.clear()
-
-    def _add_keyword(self) -> None:
-        if self._keyword is not None and self._keyword not in self.values():
-            self.list.addItem(self._keyword)
-
-    def _add_file(self) -> None:  # pragma: no cover - native dialog
-        chosen, _ = QFileDialog.getOpenFileName(
-            self, "Add file", "", self._file_filter or ""
-        )
-        if chosen:
-            self.list.addItem(chosen)
-
-    def _add_dir(self) -> None:  # pragma: no cover - native dialog
-        chosen = QFileDialog.getExistingDirectory(self, "Add folder")
-        if chosen:
-            self.list.addItem(chosen)
-
-    def _remove_selected(self) -> None:
-        for item in self.list.selectedItems():
-            self.list.takeItem(self.list.row(item))
-
-
-class ConfigEditorDialog(QDialog):
-    """Edit a Config with pickers; result_config() builds the outcome."""
-
-    SOURCE_TABS = (
-        ("wabbajack", "Wabbajack", "Wabbajack lists (*.wabbajack *.json)", True,
-         "Wabbajack modlists - the complete source of truth (name + size + "
-         "hash per archive). Add a <i>folder</i> and it is searched "
-         "<b>recursively through every subdirectory</b> for .wabbajack "
-         "files - pointing at the Wabbajack software's own folder finds all "
-         "downloaded lists across its version directories "
-         "(&lt;install&gt;\\&lt;version&gt;\\downloaded_mod_lists). Folder "
-         "finds load implicitly (latest-only filterable); add a specific "
-         "<i>file</i> to pin that exact version so no filter drops it."),
-        ("nolvus", "Nolvus", "Nolvus manifests (*.xml *.xml.gz)", True,
-         "Nolvus installer manifests (InstallPackage.xml / .xml.gz). The "
-         "'bundled' entry means the manifests shipped with the app plus any "
-         "updates fetched by Tools > Update Nolvus Manifests. Adding a "
-         "specific file pins that guide version."),
-        ("installs", "Installs", None, True,
-         "MO2 installations checked for [NoDelete]-prefixed custom "
-         "additions: each such mod's source archive is protected in the "
-         "downloads folder. Add one install (the folder containing mods/) "
-         "or a parent folder - parents are searched a few levels deep, so "
-         "nested layouts like Nolvus (Instances\\&lt;name&gt;\\MODS) are "
-         "found. Installs without [NoDelete] mods contribute nothing and "
-         "are skipped."),
-        ("recovery", "Recovery", None, True,
-         "Fallback for lists whose .wabbajack manifest is gone: every "
-         "archive the install's mods were made from is whitelisted by NAME "
-         "only. Weaker than a real manifest - it cannot tell versions "
-         "apart beyond the file name - so prefer keeping the .wabbajack "
-         "or a snapshot."),
-        ("snapshots", "Snapshots", "Snapshots (*.json)", False,
-         "Compact whitelists exported by `modsweep snapshot`. A snapshot "
-         "classifies identically to the manifest it came from and survives "
-         "that manifest's deletion - cheap insurance before uninstalling "
-         "Wabbajack."),
-    )
-    EXCLUDE_DESC = (
-        "Retire lists without touching any files: case-insensitive globs "
-        "matched against the list label ('LoreRim 2.2*') or the manifest "
-        "file name. Tip: unchecking a source in the main window manages "
-        "exact-label entries here for you."
-    )
-
-    def __init__(self, cfg: config.Config, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Edit Mod Sweep config")
-        self.resize(760, 560)
-        self._cache = cfg.cache  # not edited here; preserved through saves
-
-        self.downloads_edit = QLineEdit(str(cfg.downloads or ""))
-        self.quarantine_edit = QLineEdit(str(cfg.quarantine or ""))
-        self.keep_days = QSpinBox()
-        self.keep_days.setRange(0, 3650)
-        self.keep_days.setValue(
-            cfg.quarantine_keep_days if cfg.quarantine_keep_days is not None else 30
-        )
-        self.keep_days.setToolTip("purge deletes quarantine batches older than this")
-        self.latest_only = QCheckBox("Keep only the newest version of each list")
-        self.latest_only.setChecked(cfg.latest_only)
-        self.latest_only.setToolTip(
-            "Explicitly listed files are pinned and survive this filter"
-        )
-
-        form = QFormLayout()
-        form.addRow("Downloads folder:", self._with_browse(self.downloads_edit))
-        form.addRow("Quarantine folder:", self._with_browse(self.quarantine_edit))
-        form.addRow("Purge after (days):", self.keep_days)
-        form.addRow("", self.latest_only)
-
-        self.editors: dict[str, PathListEditor] = {}
-        tabs = QTabWidget()
-        for key, title, file_filter, allow_dirs, desc in self.SOURCE_TABS:
-            editor = PathListEditor(
-                getattr(cfg, key), file_filter, allow_dirs,
-                keyword="bundled" if key == "nolvus" else None,
-            )
-            self.editors[key] = editor
-            tabs.addTab(self._described_page(desc, editor), title)
-        self.exclude_editor = PathListEditor(cfg.exclude, None, False, text_only=True)
-        tabs.addTab(self._described_page(self.EXCLUDE_DESC, self.exclude_editor), "Exclude")
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save
-            | QDialogButtonBox.StandardButton.Cancel
-            | QDialogButtonBox.StandardButton.Help
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        buttons.helpRequested.connect(self._show_help)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(QLabel("<b>Sources of truth</b>"))
-        layout.addWidget(tabs, 1)
-        layout.addWidget(buttons)
-
-    @staticmethod
-    def _described_page(description: str, editor: PathListEditor) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        label = QLabel(description)
-        label.setWordWrap(True)
-        layout.addWidget(label)
-        layout.addWidget(editor, 1)
-        return page
-
-    def _show_help(self) -> None:  # pragma: no cover - modal dialog
-        QMessageBox.information(self, "Source resolution & retirement", RESOLUTION_HELP)
-
-    def _with_browse(self, edit: QLineEdit) -> QWidget:
-        browse = QPushButton("Browse...")
-
-        def pick() -> None:  # pragma: no cover - native dialog
-            chosen = QFileDialog.getExistingDirectory(self, "Choose folder")
-            if chosen:
-                edit.setText(chosen)
-
-        browse.clicked.connect(pick)
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.addWidget(edit, 1)
-        row_layout.addWidget(browse)
-        return row
-
-    def result_config(self) -> config.Config:
-        def path_or_none(text: str) -> Path | None:
-            text = text.strip()
-            return Path(text) if text else None
-
-        return config.Config(
-            downloads=path_or_none(self.downloads_edit.text()),
-            cache=self._cache,
-            wabbajack=[Path(v) for v in self.editors["wabbajack"].values()],
-            nolvus=[Path(v) for v in self.editors["nolvus"].values()],
-            installs=[Path(v) for v in self.editors["installs"].values()],
-            recovery=[Path(v) for v in self.editors["recovery"].values()],
-            snapshots=[Path(v) for v in self.editors["snapshots"].values()],
-            exclude=self.exclude_editor.values(),
-            latest_only=self.latest_only.isChecked(),
-            quarantine=path_or_none(self.quarantine_edit.text()),
-            quarantine_keep_days=self.keep_days.value(),
-        )
-
-
-class Worker(QThread):
-    """Runs one pipeline action off the UI thread.
-
-    stderr (source-resolution announcements) is captured and replayed into
-    the log when the action finishes.
-    """
-
-    line = Signal(str)
-    status = Signal(str)  # one-line action summary for the status bar
-    summary = Signal(str)  # action result: status bar + log + popup
-    progress = Signal(int, int)  # done, total; total 0 hides the bar
-    payload = Signal(object)  # (kind, data) delivered back to the UI thread
-    failed = Signal(str)
-
-    def __init__(self, fn, parent=None):
-        super().__init__(parent)
-        self._fn = fn
-
-    def run(self) -> None:  # pragma: no cover - thread body, covered via smoke
-        stream = _LineStream(self.line.emit)
-        try:
-            with redirect_stderr(stream):
-                self._fn(self)
-        except (Exception, SystemExit) as exc:
-            # SystemExit must not escape a QThread: unhandled it takes down
-            # the whole process, not just this action.
-            self.failed.emit(str(exc))
-        finally:
-            stream.flush_pending()
 
 
 class MainWindow(QMainWindow):

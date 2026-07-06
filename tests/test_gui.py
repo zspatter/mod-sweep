@@ -538,7 +538,7 @@ class FakeSettings:
 def test_welcome_popup_shows_once_when_suppressed(tmp_path, monkeypatch):
     app()
     FakeSettings.store = {}
-    monkeypatch.setattr(gui_mod, "QSettings", FakeSettings)
+    monkeypatch.setattr(gui_mod.window, "QSettings", FakeSettings)
     shown = []
 
     def fake_exec(box):
@@ -564,7 +564,7 @@ def test_welcome_popup_shows_once_when_suppressed(tmp_path, monkeypatch):
 def test_welcome_popup_repeats_until_suppressed(tmp_path, monkeypatch):
     app()
     FakeSettings.store = {}
-    monkeypatch.setattr(gui_mod, "QSettings", FakeSettings)
+    monkeypatch.setattr(gui_mod.window, "QSettings", FakeSettings)
     shown = []
     monkeypatch.setattr(
         QMessageBox, "exec",
