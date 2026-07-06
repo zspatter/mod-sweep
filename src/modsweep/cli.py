@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
         "label (e.g. 'LoreRim 2.2*') or manifest file name; adds to the "
         "config's exclude list (repeatable)",
     )
+    common.add_argument(
+        "--latest-only", action="store_true",
+        help="Keep only the newest version of each list (grouped by list "
+        "name); superseded manifests are announced",
+    )
 
     parser = argparse.ArgumentParser(
         prog="modsweep",
@@ -113,6 +118,7 @@ class Resolved:
     downloads: Path
     sources: list[tuple[str, Path]]  # (kind, path); kind: wabbajack|nolvus|mo2|mo2-all
     exclude: list[str]
+    latest_only: bool
     cache: Path
     quarantine: Path | None
 
@@ -138,6 +144,7 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
         downloads=downloads,
         sources=sources,
         exclude=cfg.exclude + args.exclude,  # additive: CLI extends config
+        latest_only=args.latest_only or cfg.latest_only,
         cache=args.cache or cfg.cache or DEFAULT_CACHE,
         quarantine=getattr(args, "quarantine", None) or cfg.quarantine,
     )
@@ -145,7 +152,7 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
 
 def _cmd_report(args: argparse.Namespace) -> int:
     res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
@@ -172,7 +179,7 @@ def _cmd_hash(args: argparse.Namespace) -> int:
         if args.only_candidates:
             from .matcher import STALE, UNCLAIMED
 
-            manifests = load_manifests(res.sources, res.exclude)
+            manifests = load_manifests(res.sources, res.exclude, res.latest_only)
             results = match(files, manifests, cache)
             wanted = {
                 r.disk.rel for r in results if r.status in (STALE, UNCLAIMED) and not r.sidecar
@@ -218,7 +225,7 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     if quarantine.resolve().is_relative_to(Path(res.downloads).resolve()):
         raise SystemExit("error: quarantine dir must not be inside the downloads dir")
 
-    manifests = load_manifests(res.sources, res.exclude)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
@@ -272,7 +279,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
     res = _resolve(args)
-    manifests = load_manifests(res.sources, res.exclude)
+    manifests = load_manifests(res.sources, res.exclude, res.latest_only)
     if not manifests:
         print("No manifests found.", file=sys.stderr)
         return 1
@@ -293,7 +300,9 @@ _LOADERS = {
 
 
 def load_manifests(
-    sources: list[tuple[str, Path]], exclude: list[str] | None = None
+    sources: list[tuple[str, Path]],
+    exclude: list[str] | None = None,
+    latest_only: bool = False,
 ) -> list[Manifest]:
     exclude = exclude or []
     manifests: dict[str, Manifest] = {}
@@ -317,7 +326,14 @@ def load_manifests(
         # The same list version often exists under several Wabbajack installs;
         # keep the first copy of each label.
         manifests.setdefault(manifest.label, manifest)
-    return list(manifests.values())
+    result = list(manifests.values())
+    if latest_only:
+        from .manifest import latest_only as filter_latest
+
+        result, superseded = filter_latest(result)
+        for old, winner in superseded:
+            print(f"superseded by {winner.label}: {old.label}", file=sys.stderr)
+    return result
 
 
 def _excluded_by(name: str, exclude: list[str]) -> str | None:

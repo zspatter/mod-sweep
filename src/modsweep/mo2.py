@@ -57,7 +57,8 @@ def load(path: Path, include_all: bool = False) -> Manifest:
             file=sys.stderr,
         )
     label = f"MO2 install {instance}" if include_all else f"[NoDelete] {instance}"
-    return Manifest(label=label, source_path=mods_dir, entries=entries)
+    # No version: each instance is its own group under latest-only filtering.
+    return Manifest(label=label, source_path=mods_dir, entries=entries, name=label)
 
 
 def has_nodelete_mods(path: Path) -> bool:

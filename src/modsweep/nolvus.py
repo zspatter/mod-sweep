@@ -36,7 +36,9 @@ def load(path: Path) -> Manifest:
             entry = _entry(file_el, subdir=subdir, kind="mod")
             if entry is not None:
                 entries.append(entry)
-    return Manifest(label=label, source_path=path, entries=entries)
+    return Manifest(
+        label=label, source_path=path, entries=entries, name=name, version=version
+    )
 
 
 def _entry(file_el: ET.Element, subdir: str, kind: str) -> Entry | None:

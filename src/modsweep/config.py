@@ -28,6 +28,7 @@ class Config:
     recovery: list[Path] = field(default_factory=list)  # installs whitelisted whole
     snapshots: list[Path] = field(default_factory=list)  # exported snapshot JSONs
     exclude: list[str] = field(default_factory=list)  # globs vs label or file name
+    latest_only: bool = False  # keep only the newest version of each list
     quarantine: Path | None = None
 
     @property
@@ -66,5 +67,6 @@ def load(path: Path | None) -> Config:
         recovery=resolve_list("recovery"),
         snapshots=resolve_list("snapshots"),
         exclude=[str(v) for v in data.get("exclude", [])],
+        latest_only=bool(data.get("latest_only", False)),
         quarantine=resolve(quarantine) if quarantine else None,
     )

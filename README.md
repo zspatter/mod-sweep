@@ -61,6 +61,9 @@ the safe failure mode: a forgotten list keeps its files rather than losing
 them. The report header names each active source (label + version + origin
 path); that list is the thing to review. To retire one:
 
+- set `latest_only = true` (or pass `--latest-only`) to keep just the newest
+  version of every list, grouped by list name — superseded manifests are
+  announced, and excluding the newest version pins an older one; or
 - add an `exclude` glob in `modsweep.toml` (or ad-hoc via `--exclude`),
   matched case-insensitively against the list label (`'LoreRim 2.2*'`) or
   the manifest file name — the .wabbajack stays on disk for reinstatement; or

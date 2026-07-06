@@ -41,6 +41,11 @@ snapshots = []
 # file name. Everything found and not excluded is considered active.
 exclude = []
 
+# Keep only the newest version of each list (grouped by list name).
+# Superseded manifests are announced; excluding the newest version pins an
+# older one. Set false to whitelist every version found.
+latest_only = false
+
 [quarantine]
 # Same volume as downloads => sweeps are instant renames, not copies.
 dir = 'F:\Modlists\Skyrim\_quarantine'

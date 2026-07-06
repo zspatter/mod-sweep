@@ -39,7 +39,9 @@ def load(path: Path) -> Manifest:
                 kind=kind,
             )
         )
-    return Manifest(label=label, source_path=path, entries=entries)
+    return Manifest(
+        label=label, source_path=path, entries=entries, name=name, version=version
+    )
 
 
 def _sidecar_version(path: Path) -> str | None:

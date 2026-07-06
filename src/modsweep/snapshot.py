@@ -27,6 +27,8 @@ def save(manifest: Manifest, out_dir: Path) -> Path:
         # of the file to distinguish snapshots from bare modlist.json.
         FORMAT_KEY: FORMAT_VERSION,
         "label": manifest.label,
+        "name": manifest.name,
+        "version": manifest.version,
         "source": str(manifest.source_path),
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "entries": [
@@ -64,7 +66,13 @@ def load(path: Path) -> Manifest:
         )
         for e in data.get("entries", [])
     ]
-    return Manifest(label=data["label"], source_path=path, entries=entries)
+    return Manifest(
+        label=data["label"],
+        source_path=path,
+        entries=entries,
+        name=data.get("name", ""),
+        version=data.get("version", ""),
+    )
 
 
 def is_snapshot(path: Path) -> bool:

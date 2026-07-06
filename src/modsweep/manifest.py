@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,3 +41,51 @@ class Manifest:
     label: str  # e.g. "Gate to Sovngarde 33.0.0" or "Nolvus Awakening 6.0.20"
     source_path: Path
     entries: list[Entry] = field(default_factory=list)
+    name: str = ""  # list identity without version, e.g. "LoreRim"
+    version: str = ""
+
+
+def version_key(version: str) -> list[tuple[int, int, str]]:
+    """Sortable key for dotted version strings; tolerant of suffixes.
+
+    Numeric components compare numerically ("10.0" > "9.9"); a component
+    like "3b" sorts right after 3; purely textual components sort after
+    numeric ones. An empty version sorts lowest.
+    """
+    key: list[tuple[int, int, str]] = []
+    for part in re.split(r"[.\-_+ ]+", version.strip()):
+        if not part:
+            continue
+        m = re.match(r"(\d+)(.*)", part)
+        if m:
+            key.append((0, int(m.group(1)), m.group(2)))
+        else:
+            key.append((1, 0, part))
+    return key
+
+
+def latest_only(
+    manifests: list[Manifest],
+) -> tuple[list[Manifest], list[tuple[Manifest, Manifest]]]:
+    """Keep only the newest version of each list, grouped by list name.
+
+    Returns (kept, superseded) where superseded pairs are (dropped, winner).
+    Sources without a version (e.g. [NoDelete] instances) form single-member
+    groups and always survive.
+    """
+    winners: dict[str, Manifest] = {}
+    order: list[str] = []
+    for m in manifests:
+        key = (m.name or m.label).lower()
+        current = winners.get(key)
+        if current is None:
+            winners[key] = m
+            order.append(key)
+        elif version_key(m.version) > version_key(current.version):
+            winners[key] = m
+    superseded = [
+        (m, winners[(m.name or m.label).lower()])
+        for m in manifests
+        if m is not winners[(m.name or m.label).lower()]
+    ]
+    return [winners[k] for k in order], superseded
