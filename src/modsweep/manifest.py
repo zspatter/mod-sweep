@@ -1,0 +1,42 @@
+"""Common manifest model shared by the Wabbajack and Nolvus parsers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Entry:
+    """A single archive a modlist expects to find in the downloads directory."""
+
+    file_name: str
+    subdir: str = ""  # '' means the downloads root; Nolvus mods live in category subdirs
+    size: int | None = None  # exact size in bytes (Wabbajack)
+    size_kb: int | None = None  # size as round(bytes / 1024) (Nolvus)
+    xxh64_b64: str | None = None  # base64 of little-endian xxHash64 digest (Wabbajack)
+    crc32: int | None = None  # CRC32 of the whole file (Nolvus)
+    kind: str = "mod"  # mod | tool | game
+
+    def matches_size(self, size: int) -> bool:
+        if self.size is not None:
+            return self.size == size
+        if self.size_kb is not None:
+            # Nolvus sizes are rounded to KB; allow 1 KB of slack on top of rounding.
+            return abs(self.size_kb - size / 1024) <= 1.5
+        return True
+
+    def matches_hash(self, xxh64_b64: str | None, crc32: int | None) -> bool | None:
+        """True/False when the entry carries a comparable hash, None when it doesn't."""
+        if self.xxh64_b64 is not None and xxh64_b64 is not None:
+            return self.xxh64_b64 == xxh64_b64
+        if self.crc32 is not None and crc32 is not None:
+            return self.crc32 == crc32
+        return None
+
+
+@dataclass
+class Manifest:
+    label: str  # e.g. "Gate to Sovngarde 33.0.0" or "Nolvus Awakening 6.0.20"
+    source_path: Path
+    entries: list[Entry] = field(default_factory=list)
