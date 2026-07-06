@@ -51,7 +51,8 @@ swept into a quarantine folder you can restore from with one click.
   whitelist working even after a `.wabbajack` is deleted.
 - Checks for new releases itself (Help > Check for Updates).
 
-**Install.** Download the zip, extract anywhere, run `modsweep-gui.exe`.
+**Install.** Download the zip, extract anywhere, run `modsweep-gui.exe`
+from the extracted folder.
 Windows SmartScreen may warn on first run - the executables are unsigned
 open-source builds; "More info > Run anyway". Linux/macOS builds, the
 Python package (`pipx install "modsweep[gui]"`), and full source live on

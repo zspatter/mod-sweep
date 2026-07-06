@@ -61,8 +61,8 @@ jobs:
       - name: Smoke-test the frozen CLI
         shell: bash
         run: |
-          exe=dist/modsweep
-          [ "${{ runner.os }}" = "Windows" ] && exe=dist/modsweep.exe
+          exe=dist/modsweep/modsweep
+          [ "${{ runner.os }}" = "Windows" ] && exe=dist/modsweep/modsweep.exe
           "$exe" --help
           # The riskiest freeze failure: bundled manifests must resolve from
           # inside the executable's package data.
@@ -74,10 +74,12 @@ jobs:
         shell: bash
         run: |
           cd dist
+          # onedir: one folder holding both executables and a shared
+          # _internal (fewer AV false positives than onefile stubs).
           case "${{ runner.os }}" in
-            Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep.exe modsweep-gui.exe ;;
-            macOS)   zip "modsweep-${{ github.ref_name }}-macos.zip" modsweep modsweep-gui ;;
-            Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep modsweep-gui ;;
+            Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep ;;
+            macOS)   zip -r "modsweep-${{ github.ref_name }}-macos.zip" modsweep ;;
+            Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep ;;
           esac
       - name: Attach to release
         uses: softprops/action-gh-release@v2

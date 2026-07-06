@@ -1,6 +1,7 @@
-# PyInstaller spec building the console CLI and windowed GUI as a pair of
-# standalone one-file executables. The CLI stays small (it never imports
-# PySide6); the GUI carries Qt. Bundled manifests ship inside both.
+# PyInstaller spec building the console CLI and windowed GUI into one
+# onedir folder with a shared _internal (no duplicated Qt). Onedir avoids
+# the self-extracting onefile bootloader that antivirus heuristics (and
+# NexusMods' scanner) routinely flag on unsigned builds.
 #
 #   uv run pyinstaller packaging/modsweep.spec
 import sys
@@ -21,17 +22,28 @@ def build(entry: str, name: str, console: bool):
         noarchive=False,
     )
     pyz = PYZ(analysis.pure)
-    return EXE(
+    exe = EXE(
         pyz,
         analysis.scripts,
-        analysis.binaries,
-        analysis.datas,
         name=name,
         console=console,
         icon=icon,
+        exclude_binaries=True,
         upx=False,
     )
+    return exe, analysis
 
 
-cli_exe = build("cli_entry.py", "modsweep", console=True)
-gui_exe = build("gui_entry.py", "modsweep-gui", console=False)
+cli_exe, cli_analysis = build("cli_entry.py", "modsweep", console=True)
+gui_exe, gui_analysis = build("gui_entry.py", "modsweep-gui", console=False)
+
+COLLECT(
+    cli_exe,
+    cli_analysis.binaries,
+    cli_analysis.datas,
+    gui_exe,
+    gui_analysis.binaries,
+    gui_analysis.datas,
+    name="modsweep",
+    upx=False,
+)

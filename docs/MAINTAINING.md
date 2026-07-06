@@ -51,10 +51,13 @@ new file name prefix.
   (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
   Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
   master first, then update the mirror.
-- New uploads may get auto-quarantined: PyInstaller onefile bootloaders
-  trip AV heuristics (unsigned, new hash, self-extracting). Support review
-  with the GitHub repo and CI build linked clears it; switching the build
-  to onedir is the standing mitigation if it recurs.
+- New uploads may get auto-quarantined: unsigned PyInstaller builds trip
+  AV heuristics (new hash, no reputation). Support review with the GitHub
+  repo and CI build linked clears it. The build is onedir (one folder,
+  both executables, shared _internal) precisely because the onefile
+  self-extracting stub was the worst offender; if flags persist, a
+  VirusTotal scan link on the page and, ultimately, code signing are the
+  next escalations.
 
 ## Assets
 
