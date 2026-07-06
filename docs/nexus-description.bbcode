@@ -23,6 +23,37 @@ It reads the actual sources of truth - your .wabbajack files, the bundled Nolvus
 [size=4][b]Install[/b][/size]
 Download the zip, extract anywhere, run modsweep-gui.exe from the extracted folder. Windows SmartScreen may warn on first run - the executables are unsigned open-source builds; "More info > Run anyway". Linux/macOS builds, the Python package (pipx install "modsweep[gui]"), and full source live on GitHub.
 
+[size=4][b]Quick start[/b][/size]
+[list=1]
+[*]Click [b]Edit Config...[/b] and point Mod Sweep at your setup: the shared downloads folder, your Wabbajack folder (searched for every downloaded list automatically), and your MO2 install folders (for [NoDelete] custom additions). The Nolvus manifests are already there as 'bundled'. Pick a quarantine folder on the same drive as the downloads. No config file editing - the dialog writes it for you.
+[*]Click [b]Report[/b]. Read-only, takes seconds: every file is classified against your lists, and the headline shows how much space the leftovers hold.
+[*]Click [b]Hash Candidates[/b]. This verifies the leftovers by checksum - the same hashes Wabbajack and Nolvus use - so a renamed archive a list still needs can never be mistaken for junk. Sweeps refuse unverified files, no exceptions.
+[*]Click [b]Sweep (Dry Run)[/b] to preview the exact file list, then [b]Sweep + Apply[/b] to move it into a timestamped quarantine batch.
+[*]Changed your mind? [b]Restore...[/b] puts a whole batch back exactly where it was. Confident? [b]Purge...[/b] deletes a batch permanently (the only permanent action, behind a deliberately scary confirmation), or just let batches age out.
+[/list]
+
+[size=4][b]Reading the report[/b][/size]
+[list]
+[*][i]Keep (hash verified)[/i] and [i]Keep (name+size match)[/i] - an active list still needs this file. Protected; sweeps never touch it.
+[*][i]Stale version[/i] - a list knows this file name but not this exact file: an old download superseded by an update. Candidate.
+[*][i]Unclaimed[/i] - no active list references it at all. Candidate.
+[*][i]Orphan .meta[/i] - a leftover sidecar whose archive is already gone. Candidate.
+[/list]
+The claims table shows what each list protects; its [b]unique[/b] column is the payoff number - how many files (and gigabytes) only that list still holds onto, i.e. what retiring it would free. Right-click any candidate to reveal it in Explorer, quarantine just that file, or delete it.
+
+[size=4][b]Retiring old lists[/b][/size]
+Every list found is protected by default - forgetting one keeps its files, always. To let go of one, untick it in the sources panel (fully reversible: tick it again to reinstate), or turn on [i]latest only[/i] in the config editor to keep just the newest version of every list automatically. Old versions you want to keep can be pinned with a right-click. Run Report again and watch the reclaim number grow.
+
+[size=4][b]Command line included[/b][/size]
+The same engine ships as modsweep.exe for scripting and scheduled cleanups: report (with CSV export), hash, sweep (dry run by default), restore, purge, snapshot (export durable whitelists that survive deleting the original .wabbajack), update-manifests, and check-update. Full documentation on GitHub.
+
+[size=4][b]Good to know[/b][/size]
+[list]
+[*]The config lives in modsweep.toml next to where you run the app; the hash cache and state live in a .modsweep folder. Both are plain files - nothing touches the registry, and nothing phones home (update checks only contact GitHub when you ask).
+[*]New Nolvus guide versions arrive via Tools > Update Nolvus Manifests - no new download of the app required.
+[*]Before uninstalling Wabbajack, run Snapshot: protection lasts only while a list's manifest exists, and snapshots are durable copies.
+[/list]
+
 [size=4][b]Links[/b][/size]
 Source, issues, and other platforms: [url=https://github.com/zspatter/mod-sweep]github.com/zspatter/mod-sweep[/url] - MIT licensed.
 
