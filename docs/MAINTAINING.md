@@ -7,7 +7,8 @@ clone with `uv sync --extra gui` done.
 
 1. Bump the version in **both** places: `pyproject.toml` (`version`) and
    `src/modsweep/__init__.py` (`__version__`). Run `uv lock` to refresh the
-   lockfile, run `uv run pytest`, commit.
+   lockfile, then the full gate - `uv run pytest`, `uvx ruff check`,
+   `uv run pyright` - and commit.
 2. Tag and push:
    ```
    git tag -a vX.Y.Z -m "release notes"
@@ -61,8 +62,8 @@ new file name prefix.
 
 ## Assets
 
-- **Icon**: the drawing lives in `modsweep/gui.py::_app_icon`; only the
-  exported `assets/modsweep.ico` ships. The exporter
+- **Icon**: the drawing lives in `modsweep/gui/icons.py::_app_icon`; only
+  the exported `assets/modsweep.ico` ships. The exporter
   (`packaging/make_icon.py`) is local-only tooling, deliberately
   untracked - regenerate with `uv run python packaging/make_icon.py`
   after changing the drawing.
@@ -74,10 +75,23 @@ new file name prefix.
   through the candidates table. README embeds the shots via
   raw.githubusercontent URLs so PyPI renders them too.
 
+## Documentation layout
+
+- `README.md` is the overview: install, quick start, safety model, and
+  pointers. PyPI renders it too, so images and doc links use absolute
+  GitHub URLs.
+- `docs/usage.md` is the CLI and config reference; `docs/gui.md` is the
+  GUI tour. New behavior lands there, with at most a summary line in the
+  README.
+- `docs/nexus-description.md` is the readable master for the NexusMods
+  page; `docs/nexus-description.bbcode` is the paste-ready mirror. Edit
+  the master first, then update the mirror (see Updating NexusMods).
+
 ## CI notes
 
 - `ci.yml` runs the suite on Windows/Linux/macOS (Python 3.12/3.14/latest)
-  plus Debian and Arch containers, on every push/PR and weekly.
+  plus Debian and Arch containers, on every push/PR and weekly, and a
+  `lint` job (ruff + pyright) on every push/PR.
 - The weekly run also executes live GitHub API contract tests
   (`tests/test_live_remote.py`, gated by `MODSWEEP_LIVE_TESTS=1`) and a
   keepalive job that resets GitHub's 60-day cron pause.

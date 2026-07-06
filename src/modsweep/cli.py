@@ -276,7 +276,7 @@ def load_manifests(
     latest_only: bool = False,
     parse_cache: Path | None = None,
 ) -> list[Manifest]:
-    """Resolve sources to active manifests (see README "Source resolution").
+    """Resolve sources to active manifests (see docs/usage.md, "Source resolution").
 
     Precedence: exclude > pin (explicit entry) > latest_only > active by
     default. Exclusion is checked against file name before parsing and label
