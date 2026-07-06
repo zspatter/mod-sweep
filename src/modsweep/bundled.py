@@ -27,9 +27,12 @@ def package_dir() -> Path | None:
 
 def user_dir() -> Path:
     """Per-user, always-writable home for downloaded manifest updates."""
-    if sys.platform == "win32":
+    # Plain-str binding: type checkers narrow sys.platform to the literal of
+    # the analysis platform and would mark the other branches unreachable.
+    platform: str = sys.platform
+    if platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    elif sys.platform == "darwin":
+    elif platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))

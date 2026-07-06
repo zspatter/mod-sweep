@@ -189,6 +189,51 @@ def test_exact_exclude_pattern_survives_brackets():
     assert _excluded_by(label, [pattern]) == pattern
 
 
+# --- update commands ---------------------------------------------------------
+
+
+def test_update_manifests_command_reports_downloads(monkeypatch, capsys):
+    from modsweep import remote
+
+    monkeypatch.setattr(remote, "update_manifests", lambda: ["nolvus-7.0.xml.gz"])
+    assert main(["update-manifests"]) == 0
+    out = capsys.readouterr().out
+    assert "downloaded nolvus-7.0.xml.gz" in out
+    assert "'bundled' config entry picks them up" in out
+
+    monkeypatch.setattr(remote, "update_manifests", lambda: [])
+    assert main(["update-manifests"]) == 0
+    assert "up to date" in capsys.readouterr().out
+
+
+def test_update_manifests_command_wraps_network_errors(monkeypatch):
+    from modsweep import remote
+
+    def boom():
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(remote, "update_manifests", boom)
+    with pytest.raises(SystemExit, match="manifest update failed"):
+        main(["update-manifests"])
+
+
+def test_check_update_command(monkeypatch, capsys):
+    from modsweep import remote
+
+    monkeypatch.setattr(
+        remote, "check_update",
+        lambda current: remote.UpdateInfo(current, "9.9.9", "https://example/rel"),
+    )
+    assert main(["check-update"]) == 0
+    out = capsys.readouterr().out
+    assert "Update available: v9.9.9" in out
+    assert "https://example/rel" in out
+
+    monkeypatch.setattr(remote, "check_update", lambda current: None)
+    assert main(["check-update"]) == 0
+    assert "up to date" in capsys.readouterr().out
+
+
 # --- end-to-end through main() --------------------------------------------
 
 

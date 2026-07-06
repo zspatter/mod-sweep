@@ -607,6 +607,48 @@ def test_apply_config_saves_and_refreshes(tmp_path):
     assert config.load(tmp_path / "modsweep.toml").exclude == ["A*"]
 
 
+def test_manifest_update_action_refreshes_sources(tmp_path, monkeypatch):
+    from modsweep import remote
+
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    monkeypatch.setattr(remote, "update_manifests", lambda: ["nolvus-7.0.xml.gz"])
+    win.run_manifest_update()
+    wait_idle(win)
+    wait_idle(win)  # chained source refresh
+    assert "Downloaded 1 new manifest(s): nolvus-7.0.xml.gz" in win.console.toPlainText()
+
+
+def test_update_check_offers_release_page(tmp_path, monkeypatch):
+    from modsweep import remote
+
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    monkeypatch.setattr(
+        remote, "check_update",
+        lambda current: remote.UpdateInfo(current, "9.9.9", "https://example/rel"),
+    )
+    prompts = []
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "question",
+        staticmethod(
+            lambda parent, title, text, *a, **k: (
+                prompts.append(text), QMessageBox.StandardButton.No
+            )[1]
+        ),
+    )
+    win.run_update_check()
+    wait_idle(win)
+    assert any("v9.9.9 is available" in text for text in prompts)
+
+    monkeypatch.setattr(remote, "check_update", lambda current: None)
+    win.run_update_check()
+    wait_idle(win)
+    assert "is up to date" in win.console.toPlainText()
+
+
 def test_tables_sort_numerically(tmp_path):
     app()
     dl = tmp_path / "downloads"

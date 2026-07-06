@@ -1,3 +1,5 @@
+import pytest
+
 from modsweep import sweep as sweep_mod
 from modsweep.cache import HashCache
 from modsweep.matcher import KEEP, UNCLAIMED, FileResult
@@ -14,6 +16,13 @@ def make_downloads(tmp_path):
     return dl
 
 
+@pytest.fixture
+def cache(tmp_path):
+    opened = HashCache(tmp_path / "c.sqlite")
+    yield opened
+    opened.close()
+
+
 def results_for(dl):
     files = {f.rel: f for f in scan(dl)}
     return [
@@ -24,17 +33,15 @@ def results_for(dl):
     ]
 
 
-def test_plan_refuses_unhashed_and_binds_sidecar(tmp_path):
+def test_plan_refuses_unhashed_and_binds_sidecar(tmp_path, cache):
     dl = make_downloads(tmp_path)
-    cache = HashCache(tmp_path / "c.sqlite")
     plan = sweep_mod.plan(results_for(dl), cache)
     assert not plan.ready
     assert {r.disk.rel for r in plan.refused} == {"old.7z", "old.7z.meta", "sub/junk.zip"}
 
 
-def test_plan_never_touches_keeps(tmp_path):
+def test_plan_never_touches_keeps(tmp_path, cache):
     dl = make_downloads(tmp_path)
-    cache = HashCache(tmp_path / "c.sqlite")
     for r in results_for(dl):
         if not r.disk.is_meta:
             cache.put(r.disk, "h", 1)
@@ -42,9 +49,8 @@ def test_plan_never_touches_keeps(tmp_path):
     assert "keep.7z" not in {r.disk.rel for r in plan.ready}
 
 
-def test_execute_and_restore_roundtrip(tmp_path):
+def test_execute_and_restore_roundtrip(tmp_path, cache):
     dl = make_downloads(tmp_path)
-    cache = HashCache(tmp_path / "c.sqlite")
     results = results_for(dl)
     for r in results:
         if not r.disk.is_meta:
@@ -109,9 +115,15 @@ def test_missing_quarantine_dir_lists_nothing(tmp_path):
     assert sweep_mod.list_batches(tmp_path / "nope") == []
 
 
-def test_execute_tag_suffixes_batch_and_keeps_age_parseable(tmp_path):
+def test_restore_rejects_non_batch_dir(tmp_path):
+    not_a_batch = tmp_path / "random"
+    not_a_batch.mkdir()
+    with pytest.raises(SystemExit, match="not a sweep batch"):
+        sweep_mod.restore(not_a_batch)
+
+
+def test_execute_tag_suffixes_batch_and_keeps_age_parseable(tmp_path, cache):
     dl = make_downloads(tmp_path)
-    cache = HashCache(tmp_path / "c.sqlite")
     results = results_for(dl)
     for r in results:
         if not r.disk.is_meta:
@@ -124,9 +136,8 @@ def test_execute_tag_suffixes_batch_and_keeps_age_parseable(tmp_path):
     assert listed.created.year >= 2026  # parsed from the stamp prefix, not mtime
 
 
-def test_restore_refuses_to_overwrite(tmp_path):
+def test_restore_refuses_to_overwrite(tmp_path, cache):
     dl = make_downloads(tmp_path)
-    cache = HashCache(tmp_path / "c.sqlite")
     results = results_for(dl)
     for r in results:
         if not r.disk.is_meta:

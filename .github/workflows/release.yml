@@ -31,6 +31,8 @@ jobs:
   publish-pypi:
     needs: build-dist
     runs-on: ubuntu-latest
+    # Created in repo Settings > Environments as part of the trusted
+    # publisher setup; editor linters flag it until it exists on GitHub.
     environment: pypi
     permissions:
       id-token: write

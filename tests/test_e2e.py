@@ -193,6 +193,12 @@ def test_missing_downloads_errors(tmp_path, monkeypatch):
         main(["report", "-m", "x.wabbajack"])
 
 
+def test_purge_without_quarantine_errors(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no config: nothing supplies a quarantine dir
+    with pytest.raises(SystemExit, match="no --quarantine"):
+        main(["purge"])
+
+
 def cached_rows(tmp_path) -> int:
     with sqlite3.connect(tmp_path / "cache.sqlite") as conn:
         (count,) = conn.execute("SELECT COUNT(*) FROM hashes").fetchone()

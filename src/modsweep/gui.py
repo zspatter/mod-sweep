@@ -203,27 +203,29 @@ def _app_icon() -> QIcon:
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    # handle, upper right to center
-    painter.setPen(QPen(QColor("#8a5a2b"), 24, Qt.PenStyle.SolidLine,
+
+    # An upright broom: the handle runs straight into the middle of the
+    # ferrule, which caps a bristle fan symmetric about the same axis.
+    axis = 112  # nudged left so the dust puffs get room on the right
+    painter.setPen(QPen(QColor("#8a5a2b"), 22, Qt.PenStyle.SolidLine,
                         Qt.PenCapStyle.RoundCap))
-    painter.drawLine(214, 28, 128, 124)
-    # ferrule binding the bristles to the handle
-    painter.setPen(QPen(QColor("#c9a227"), 34, Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap))
-    painter.drawLine(128, 124, 112, 142)
-    # bristle head fanning to the lower left
+    painter.drawLine(axis, 20, axis, 120)  # handle
     painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(QColor("#c9a227")))
+    painter.drawRoundedRect(axis - 30, 112, 60, 34, 8, 8)  # ferrule
     painter.setBrush(QBrush(QColor("#d9b45b")))
     painter.drawPolygon(QPolygonF([
-        QPointF(126, 128), QPointF(168, 170),
-        QPointF(96, 232), QPointF(26, 158),
-    ]))
-    # bristle strands
-    painter.setPen(QPen(QColor("#a87f31"), 7))
-    for start, end in (
-        ((116, 142), (58, 178)), ((128, 154), (74, 198)), ((140, 166), (92, 214)),
-    ):
-        painter.drawLine(*start, *end)
+        QPointF(axis - 26, 146), QPointF(axis + 26, 146),
+        QPointF(axis + 52, 232), QPointF(axis - 52, 232),
+    ]))  # bristles
+    painter.setPen(QPen(QColor("#a87f31"), 6))
+    for spread in (-34, -12, 12, 34):
+        painter.drawLine(axis + spread // 2, 152, axis + spread, 226)  # strands
+    # dust puffs trailing off the sweep
+    painter.setPen(QPen(QColor("#9aa0a6"), 5))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for x, y, radius in ((196, 208, 13), (220, 180, 8), (226, 224, 6)):
+        painter.drawEllipse(QPointF(x, y), radius, radius)
     painter.end()
     return QIcon(pixmap)
 
