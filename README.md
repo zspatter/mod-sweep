@@ -219,6 +219,21 @@ so every safety rule still applies (hash gate, sidecar binding, dry-run
 preview, batch manifest) — and then purged immediately. **There is no undo.**
 The default remains quarantine + trust period.
 
+## GUI
+
+```powershell
+uv sync --extra gui          # installs PySide6
+uv run modsweep-gui          # optional: pass a config path
+```
+
+The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
+(Open Config... to switch), lists the active sources with all resolution
+announcements in the console pane, and offers Report, Hash Candidates (with
+progress), Sweep dry run, and Sweep + Apply (confirmation dialog; restore
+stays on the CLI). No custom palette or stylesheet is set anywhere, so the
+interface follows the system light/dark theme natively. Actions run on a
+worker thread; the window stays responsive.
+
 ## Testing
 
 `uv run pytest` (or with `--cov=modsweep` for coverage, ~94%). The suite
@@ -231,6 +246,7 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 
 ## Roadmap
 
-- GUI for picking manifests and watching progress (nice-to-have).
+- GUI growth: exclude/pin toggles per source, restore/purge actions,
+  streaming announcements instead of end-of-action replay.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.

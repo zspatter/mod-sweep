@@ -11,6 +11,12 @@ dependencies = ["xxhash>=3.4"]
 
 [project.scripts]
 modsweep = "modsweep.cli:main"
+modsweep-gui = "modsweep.gui:main"
+
+[project.optional-dependencies]
+gui = [
+    "pyside6>=6.7",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

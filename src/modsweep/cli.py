@@ -495,7 +495,7 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     if args.delete and not args.apply:
         raise SystemExit("error: --delete requires --apply")
     res = _resolve(args)
-    quarantine = _quarantine_dir(res)
+    quarantine = _quarantine_dir_for(res.downloads, res.quarantine)
     manifests = load_manifests(res.sources, res.exclude, res.latest_only)
     if not manifests:
         print("No manifests found.", file=sys.stderr)
@@ -511,12 +511,11 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     return _apply_sweep(plan, quarantine, delete=args.delete)
 
 
-def _quarantine_dir(res: Resolved) -> Path:
-    quarantine = res.quarantine
+def _quarantine_dir_for(downloads: Path, quarantine: Path | None) -> Path:
     if quarantine is None:
-        quarantine = res.downloads.parent / "_quarantine"
+        quarantine = downloads.parent / "_quarantine"
     quarantine = Path(quarantine)
-    if quarantine.resolve().is_relative_to(Path(res.downloads).resolve()):
+    if quarantine.resolve().is_relative_to(Path(downloads).resolve()):
         raise SystemExit("error: quarantine dir must not be inside the downloads dir")
     return quarantine
 
