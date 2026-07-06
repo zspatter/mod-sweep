@@ -230,7 +230,13 @@ uv run modsweep-gui          # optional: pass a config path
 ```
 
 The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
-(Open Config... to switch) and lists the active sources. The Report tab
+(Open Config... to switch) and lists the active sources. Edit Config...
+opens a full editor — downloads/quarantine folder pickers, purge trust
+period, latest-only toggle, per-kind source tabs (Wabbajack / Nolvus /
+Installs / Recovery / Snapshots) with add-file/add-folder buttons, and the
+exclude list — so a new user can go from empty config to first report
+without touching TOML; saving rewrites `modsweep.toml` (comments are
+regenerated) and reloads the sources. The Report tab
 renders the classification as sortable tables (status summary, per-source
 claims with the unique-holdings column, all deletion candidates); the Log
 tab collects resolution announcements and action output. A welcome dialog
@@ -261,12 +267,11 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 
 ## Roadmap
 
-- GUI config editor: generate `modsweep.toml` from folder/file pickers;
-  build up the source list and toggle each source on/off individually
-  (exclude), including choosing which bundled Nolvus versions to keep —
-  the pinning mechanics already support "latest plus these specific
-  versions" (list a bundled file explicitly next to the directory), the
-  GUI just needs to surface it.
+- GUI config editor growth: toggle each *resolved* source on/off
+  individually (writing excludes), including choosing which bundled Nolvus
+  versions to keep — the pinning mechanics already support "latest plus
+  these specific versions"; the editor just needs to surface it per-source
+  rather than per-entry.
 - GUI growth: streaming announcements instead of end-of-action replay; a
   real .ico to replace the emoji-rendered broom.
 - Distribution: publish to PyPI so `uv tool install modsweep` / `pipx

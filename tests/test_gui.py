@@ -228,6 +228,56 @@ def test_pipeline_log_lines_drain_into_console(tmp_path):
     assert "INFO modsweep.matcher: matched" in text
 
 
+def test_config_editor_prefills_and_builds_result(tmp_path):
+    app()
+    from modsweep import config
+    from modsweep.gui import ConfigEditorDialog
+
+    cfg = config.Config(
+        downloads=tmp_path / "dl",
+        cache=tmp_path / "cache.sqlite",
+        wabbajack=[tmp_path / "Wabbajack"],
+        exclude=["NGVO*"],
+        latest_only=True,
+        quarantine=tmp_path / "q",
+        quarantine_keep_days=14,
+    )
+    dialog = ConfigEditorDialog(cfg)
+    assert dialog.downloads_edit.text() == str(tmp_path / "dl")
+    assert dialog.editors["wabbajack"].values() == [str(tmp_path / "Wabbajack")]
+    assert dialog.exclude_editor.values() == ["NGVO*"]
+    assert dialog.latest_only.isChecked()
+    assert dialog.keep_days.value() == 14
+
+    dialog.downloads_edit.setText(str(tmp_path / "other"))
+    dialog.editors["installs"].list.addItem(str(tmp_path / "MO2"))
+    dialog.exclude_editor.pattern_edit.setText("Apostasy*")
+    dialog.exclude_editor._add_text()
+    dialog.latest_only.setChecked(False)
+
+    result = dialog.result_config()
+    assert result.downloads == tmp_path / "other"
+    assert result.cache == tmp_path / "cache.sqlite"  # preserved though unedited
+    assert result.installs == [tmp_path / "MO2"]
+    assert result.exclude == ["NGVO*", "Apostasy*"]
+    assert result.latest_only is False
+
+
+def test_apply_config_saves_and_refreshes(tmp_path):
+    app()
+    from modsweep import config
+
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    edited = config.load(tmp_path / "modsweep.toml")
+    edited.exclude = ["A*"]  # retire the only list
+    win.apply_config(edited)
+    wait_idle(win)
+    assert win.sources_list.count() == 0
+    assert "excluded (A*)" in win.console.toPlainText()
+    assert config.load(tmp_path / "modsweep.toml").exclude == ["A*"]
+
+
 def test_tables_sort_numerically(tmp_path):
     app()
     dl = tmp_path / "downloads"

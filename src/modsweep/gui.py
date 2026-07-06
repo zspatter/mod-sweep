@@ -28,10 +28,14 @@ try:
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
+        QDialog,
+        QDialogButtonBox,
         QFileDialog,
+        QFormLayout,
         QHBoxLayout,
         QInputDialog,
         QLabel,
+        QLineEdit,
         QListWidget,
         QMainWindow,
         QMenu,
@@ -39,6 +43,7 @@ try:
         QPlainTextEdit,
         QProgressBar,
         QPushButton,
+        QSpinBox,
         QSplitter,
         QTableWidget,
         QTableWidgetItem,
@@ -76,6 +81,8 @@ details."""
 
 TOOLTIPS = {
     "open": "Choose a different modsweep.toml",
+    "edit": "Edit the config in a dialog: downloads folder, sources of "
+    "truth, exclusions, and quarantine settings",
     "refresh": "Reload the active sources from the config "
     "(resolution announcements appear in the Log tab)",
     "report": "Classify every file in the downloads directory against the "
@@ -150,6 +157,174 @@ class NumericItem(QTableWidgetItem):
         if isinstance(other, NumericItem):
             return self._value < other._value
         return super().__lt__(other)
+
+
+class PathListEditor(QWidget):
+    """A list of paths (or plain strings) with add/remove buttons."""
+
+    def __init__(self, values: list, file_filter: str | None, allow_dirs: bool,
+                 text_only: bool = False, parent=None):
+        super().__init__(parent)
+        self._file_filter = file_filter
+        self.list = QListWidget()
+        self.list.setAlternatingRowColors(True)
+        for value in values:
+            self.list.addItem(str(value))
+
+        buttons = QHBoxLayout()
+        if text_only:
+            self.pattern_edit = QLineEdit()
+            self.pattern_edit.setPlaceholderText("glob, e.g. LoreRim 2.2*")
+            add = QPushButton("Add")
+            add.clicked.connect(self._add_text)
+            buttons.addWidget(self.pattern_edit, 1)
+            buttons.addWidget(add)
+        else:
+            if file_filter is not None:
+                add_file = QPushButton("Add File...")
+                add_file.clicked.connect(self._add_file)
+                buttons.addWidget(add_file)
+            if allow_dirs:
+                add_dir = QPushButton("Add Folder...")
+                add_dir.clicked.connect(self._add_dir)
+                buttons.addWidget(add_dir)
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove_selected)
+        buttons.addWidget(remove)
+        buttons.addStretch()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.list)
+        layout.addLayout(buttons)
+
+    def values(self) -> list[str]:
+        return [self.list.item(i).text() for i in range(self.list.count())]
+
+    def _add_text(self) -> None:
+        text = self.pattern_edit.text().strip()
+        if text:
+            self.list.addItem(text)
+            self.pattern_edit.clear()
+
+    def _add_file(self) -> None:  # pragma: no cover - native dialog
+        chosen, _ = QFileDialog.getOpenFileName(self, "Add file", "", self._file_filter)
+        if chosen:
+            self.list.addItem(chosen)
+
+    def _add_dir(self) -> None:  # pragma: no cover - native dialog
+        chosen = QFileDialog.getExistingDirectory(self, "Add folder")
+        if chosen:
+            self.list.addItem(chosen)
+
+    def _remove_selected(self) -> None:
+        for item in self.list.selectedItems():
+            self.list.takeItem(self.list.row(item))
+
+
+class ConfigEditorDialog(QDialog):
+    """Edit a Config with pickers; result_config() builds the outcome."""
+
+    SOURCE_TABS = (
+        ("wabbajack", "Wabbajack", "Wabbajack lists (*.wabbajack *.json)", True,
+         ".wabbajack files, or folders searched recursively for them"),
+        ("nolvus", "Nolvus", "Nolvus manifests (*.xml *.xml.gz)", True,
+         "InstallPackage files; the repo's bundled folder works as one entry"),
+        ("installs", "Installs", None, True,
+         "MO2 installs holding [NoDelete] custom additions (or their parent)"),
+        ("recovery", "Recovery", None, True,
+         "installs whitelisted whole by archive name - manifest-loss fallback"),
+        ("snapshots", "Snapshots", "Snapshots (*.json)", False,
+         "snapshot JSONs exported by modsweep snapshot"),
+    )
+
+    def __init__(self, cfg: config.Config, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit modsweep config")
+        self.resize(760, 560)
+        self._cache = cfg.cache  # not edited here; preserved through saves
+
+        self.downloads_edit = QLineEdit(str(cfg.downloads or ""))
+        self.quarantine_edit = QLineEdit(str(cfg.quarantine or ""))
+        self.keep_days = QSpinBox()
+        self.keep_days.setRange(0, 3650)
+        self.keep_days.setValue(
+            cfg.quarantine_keep_days if cfg.quarantine_keep_days is not None else 30
+        )
+        self.keep_days.setToolTip("purge deletes quarantine batches older than this")
+        self.latest_only = QCheckBox("Keep only the newest version of each list")
+        self.latest_only.setChecked(cfg.latest_only)
+        self.latest_only.setToolTip(
+            "Explicitly listed files are pinned and survive this filter"
+        )
+
+        form = QFormLayout()
+        form.addRow("Downloads folder:", self._with_browse(self.downloads_edit))
+        form.addRow("Quarantine folder:", self._with_browse(self.quarantine_edit))
+        form.addRow("Purge after (days):", self.keep_days)
+        form.addRow("", self.latest_only)
+
+        self.editors: dict[str, PathListEditor] = {}
+        tabs = QTabWidget()
+        for key, title, file_filter, allow_dirs, tip in self.SOURCE_TABS:
+            editor = PathListEditor(getattr(cfg, key), file_filter, allow_dirs)
+            editor.setToolTip(tip)
+            self.editors[key] = editor
+            tabs.addTab(editor, title)
+        self.exclude_editor = PathListEditor(cfg.exclude, None, False, text_only=True)
+        self.exclude_editor.setToolTip(
+            "Retire lists: case-insensitive globs matched against the list "
+            "label or manifest file name"
+        )
+        tabs.addTab(self.exclude_editor, "Exclude")
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(QLabel("<b>Sources of truth</b>"))
+        layout.addWidget(tabs, 1)
+        layout.addWidget(buttons)
+
+    def _with_browse(self, edit: QLineEdit) -> QWidget:
+        browse = QPushButton("Browse...")
+
+        def pick() -> None:  # pragma: no cover - native dialog
+            chosen = QFileDialog.getExistingDirectory(self, "Choose folder")
+            if chosen:
+                edit.setText(chosen)
+
+        browse.clicked.connect(pick)
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(edit, 1)
+        row_layout.addWidget(browse)
+        return row
+
+    def result_config(self) -> config.Config:
+        def path_or_none(text: str) -> Path | None:
+            text = text.strip()
+            return Path(text) if text else None
+
+        return config.Config(
+            downloads=path_or_none(self.downloads_edit.text()),
+            cache=self._cache,
+            wabbajack=[Path(v) for v in self.editors["wabbajack"].values()],
+            nolvus=[Path(v) for v in self.editors["nolvus"].values()],
+            installs=[Path(v) for v in self.editors["installs"].values()],
+            recovery=[Path(v) for v in self.editors["recovery"].values()],
+            snapshots=[Path(v) for v in self.editors["snapshots"].values()],
+            exclude=self.exclude_editor.values(),
+            latest_only=self.latest_only.isChecked(),
+            quarantine=path_or_none(self.quarantine_edit.text()),
+            quarantine_keep_days=self.keep_days.value(),
+        )
 
 
 class Worker(QThread):
@@ -245,6 +420,7 @@ class MainWindow(QMainWindow):
     def _build_buttons(self) -> None:
         self.buttons = {
             "open": QPushButton("Open Config..."),
+            "edit": QPushButton("Edit Config..."),
             "refresh": QPushButton("Refresh Sources"),
             "report": QPushButton("Report"),
             "hash": QPushButton("Hash Candidates"),
@@ -256,6 +432,7 @@ class MainWindow(QMainWindow):
         for name, button in self.buttons.items():
             button.setToolTip(TOOLTIPS[name])
         self.buttons["open"].clicked.connect(self.open_config)
+        self.buttons["edit"].clicked.connect(self.edit_config)
         self.buttons["refresh"].clicked.connect(self.refresh_sources)
         self.buttons["report"].clicked.connect(self.run_report)
         self.buttons["hash"].clicked.connect(self.run_hash_candidates)
@@ -346,6 +523,22 @@ class MainWindow(QMainWindow):
             self.cfg = config.load(self.config_path)
             self._show_config_status()
             self.refresh_sources()
+
+    def edit_config(self) -> None:  # pragma: no cover - modal dialog
+        dialog = ConfigEditorDialog(self.cfg, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.apply_config(dialog.result_config())
+
+    def apply_config(self, new_cfg: config.Config) -> None:
+        """Persist an edited config, reload it, and refresh the sources."""
+        target = self.config_path or Path(config.DEFAULT_NAME)
+        config.save(new_cfg, target)
+        self.config_path = Path(target)
+        self.cfg = config.load(self.config_path)
+        self._show_config_status()
+        self._on_status(f"Config saved to {target}.")
+        self.refresh_sources()
 
     def _load_active(self, worker: Worker) -> list[Manifest]:
         """Resolve sources (parsing manifests is the slow part - workers only)."""
