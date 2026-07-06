@@ -23,7 +23,7 @@ def load(path: Path, include_all: bool = False) -> Manifest:
     """Load from an MO2 instance dir (containing mods/) or a mods dir itself.
 
     By default only `[NoDelete]` mods are read (the user's custom additions).
-    With include_all, every installed mod's archive is collected — a
+    With include_all, every installed mod's archive is collected - a
     name-only recovery whitelist for lists whose .wabbajack manifest is gone.
     """
     path = Path(path)

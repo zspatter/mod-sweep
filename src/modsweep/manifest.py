@@ -80,7 +80,7 @@ def latest_only(
     """Keep only the newest version of each list, grouped by list name.
 
     `pinned` labels (explicitly-listed sources) are never dropped, but they
-    still compete as versions — pinning the newest of a group does not
+    still compete as versions - pinning the newest of a group does not
     resurrect older ones. Returns (kept, superseded, pinned_kept) where the
     pair lists hold (manifest, group_winner). Sources without a version
     (e.g. [NoDelete] instances) form single-member groups and always survive.

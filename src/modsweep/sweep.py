@@ -113,7 +113,7 @@ class Batch:
 def list_batches(quarantine: Path) -> list[Batch]:
     """Enumerate sweep batches under the quarantine dir.
 
-    Only directories carrying a sweep manifest count — anything else in the
+    Only directories carrying a sweep manifest count - anything else in the
     quarantine dir is never touched. Age comes from the batch dir's
     timestamp name, falling back to filesystem mtime.
     """
@@ -153,7 +153,7 @@ def restore(batch: Path) -> tuple[int, int, int]:
     batch = Path(batch)
     manifest = batch / MANIFEST_NAME
     if not manifest.exists():
-        raise SystemExit(f"error: {manifest} not found — not a sweep batch")
+        raise SystemExit(f"error: {manifest} not found - not a sweep batch")
     moved = skipped = missing = 0
     with open(manifest, encoding="utf-8-sig") as fh:
         rows = list(csv.DictReader(fh))

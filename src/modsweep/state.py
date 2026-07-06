@@ -1,7 +1,7 @@
 """Track the previously-active source set to detect silent vanishing.
 
 Exclusions and supersessions are announced at resolution time, but a manifest
-file that disappears from disk is simply never discovered — the one silent
+file that disappears from disk is simply never discovered - the one silent
 way protection can lapse (e.g. uninstalling Wabbajack removes its
 downloaded_mod_lists). The state file remembers which sources were active
 after each config-driven run so the next run can warn instead of quietly
@@ -43,7 +43,7 @@ def vanished(
     """(label, old_source_path) pairs whose manifest file no longer exists.
 
     A label that is inactive but whose source file still exists was dropped
-    by exclusion/supersession — announced elsewhere — and is not reported.
+    by exclusion/supersession - announced elsewhere - and is not reported.
     """
     active = {m.label for m in current}
     return [

@@ -44,8 +44,8 @@ def status_order(status: str) -> int:
 class _Index:
     """Manifest entries indexed by name and by hash.
 
-    Wabbajack identifies archives purely by hash — files on disk may carry
-    rewritten names (e.g. a sha256 embedded in the file name) — so a hash hit
+    Wabbajack identifies archives purely by hash - files on disk may carry
+    rewritten names (e.g. a sha256 embedded in the file name) - so a hash hit
     counts as claimed even when no entry shares the file name.
     """
 
@@ -72,7 +72,7 @@ def match(
 ) -> list[FileResult]:
     start = time.perf_counter()
     index = _Index(manifests)
-    results: dict[str, FileResult] = {}  # keyed by exact rel — case matters on POSIX
+    results: dict[str, FileResult] = {}  # keyed by exact rel - case matters on POSIX
     lower_rel: dict[str, str] = {}  # case-insensitive lookup for sidecar binding
     metas: list[DiskFile] = []
     for disk in files:
@@ -147,7 +147,7 @@ def _classify_hashed(
             f"hash matches manifest entry named {names[0]}",
         )
     # Hashless sources ([NoDelete] custom additions, MO2-install recovery)
-    # can still claim by name — there is nothing to verify against.
+    # can still claim by name - there is nothing to verify against.
     hashless = [
         (label, e)
         for label, e in candidates

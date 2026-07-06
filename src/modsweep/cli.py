@@ -259,7 +259,7 @@ def load_manifests(
     after; label dedupe keeps the first copy but a pin from any copy sticks;
     empty MO2 sources drop; the version filter never drops pinned manifests
     though they still compete as versions. Every drop or pin-save is
-    announced on stderr — no silent decisions.
+    announced on stderr - no silent decisions.
     """
     start = time.perf_counter()
     manifests, pinned = _load_sources(sources, exclude or [], parse_cache)
@@ -284,7 +284,7 @@ def _load_sources(
         if manifest is None:
             continue
         # The same list version often exists under several Wabbajack installs;
-        # keep the first copy of each label — but a pin from any copy sticks.
+        # keep the first copy of each label - but a pin from any copy sticks.
         manifests.setdefault(manifest.label, manifest)
         if pin:
             pinned.add(manifest.label)
@@ -417,7 +417,7 @@ def config_sources(cfg: config.Config) -> list[tuple[str, Path, bool]]:
 
 def _expand_nolvus(paths: list[Path]) -> list[tuple[str, Path, bool]]:
     """A directory of bundled manifests is implicit (latest-only filterable);
-    a file the user names — their own copy from the author — is pinned.
+    a file the user names - their own copy from the author - is pinned.
     The 'bundled' keyword stands for the package-shipped manifests plus any
     downloaded updates in the per-user data dir."""
     expanded: list[Path] = []
@@ -530,7 +530,7 @@ def _is_mo2_instance(path: Path) -> bool:
 def _check_source_drift(res: Resolved, manifests: list[Manifest]) -> None:
     """Warn when a previously-active source can no longer be found on disk.
 
-    Only config-driven runs check and update the baseline — an ad-hoc -m
+    Only config-driven runs check and update the baseline - an ad-hoc -m
     subset would both false-positive and clobber it.
     """
     if not res.from_config:

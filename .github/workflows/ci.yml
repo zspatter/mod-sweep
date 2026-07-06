@@ -1,5 +1,5 @@
 # Cross-platform is a standing requirement: Windows is the primary platform,
-# Linux support matters, and macOS must not break — so the matrix covers all
+# Linux support matters, and macOS must not break - so the matrix covers all
 # three natively plus Debian and Arch containers, on the oldest supported,
 # current, and latest-available Python.
 name: CI
@@ -22,7 +22,7 @@ jobs:
         python: ['3.12', '3.14', '3'] # '3' = latest available CPython
         # '' = run natively on the runner. Debian/Arch have no hosted
         # runners, so they join as containers on ubuntu via the include
-        # rows — which must contradict this key to spawn standalone jobs
+        # rows - which must contradict this key to spawn standalone jobs
         # (otherwise they would merely augment the native ubuntu/py3 job).
         container: ['']
         include:
@@ -60,7 +60,7 @@ jobs:
   # GitHub pauses cron-triggered workflows after ~60 days without repo
   # activity; the schedule alone cannot keep itself alive. Re-enabling an
   # already-enabled workflow resets that timer, so each scheduled run
-  # renews its own lease — no dummy commits needed.
+  # renews its own lease - no dummy commits needed.
   keepalive:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest

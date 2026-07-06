@@ -1,9 +1,9 @@
-"""Load modsweep.toml — the authoritative record of active sources.
+"""Load modsweep.toml - the authoritative record of active sources.
 
 The config is the durable statement of which lists are active: retiring a
 list means removing its line and rerunning `report`/`sweep`. Source types are
 declared explicitly (wabbajack / nolvus / installs / recovery) so nothing is
-auto-detected from a config entry — important for setups where installs are
+auto-detected from a config entry - important for setups where installs are
 spread across drives or live next to unrelated folders. CLI arguments
 override config values. Relative paths resolve against the config file's
 directory.
@@ -89,7 +89,7 @@ def save(cfg: Config, path: Path) -> None:
     """Write the config as documented TOML.
 
     Comments are regenerated on every save (the GUI editor owns the file
-    once it manages it) and paths are written as given — the editor supplies
+    once it manages it) and paths are written as given - the editor supplies
     absolute paths from its pickers.
     """
     lines = [
