@@ -8,6 +8,17 @@ manifests, classifies every file in the downloads directory against it, and
 reports what is claimed, stale, or unclaimed. **Read-only for now — there is
 deliberately no delete command until the inventory is trusted.**
 
+## Installation
+
+- **Standalone executables** (no Python required): grab the archive for
+  your platform from the [latest release](https://github.com/zspatter/mod-sweep/releases/latest) —
+  each contains the `modsweep` CLI and the `modsweep-gui` app.
+- **PyPI**: `uv tool install "modsweep[gui]"` (or
+  `pipx install "modsweep[gui]"`) installs both commands; drop the `[gui]`
+  extra for the CLI only. Upgrade later with `uv tool upgrade modsweep`.
+- **From source**: clone, `uv sync --extra gui`, then `uv run modsweep` /
+  `uv run modsweep-gui`.
+
 ## Layout convention (verified)
 
 - Wabbajack lists dump all archives into the downloads **root**.
@@ -299,12 +310,9 @@ in [LICENSE](LICENSE)).
 
 ## Roadmap
 
-- First release: register this repo as a PyPI trusted publisher
-  (pypi.org > project > Publishing) so the release workflow's publish job
-  works, then tag — the workflow builds sdist/wheel, publishes (enabling
-  `uv tool install modsweep` / `pipx install modsweep`), and attaches
-  per-OS executable pairs to the GitHub release. Then the NexusMods
-  listing, the end goal for reaching modlist users.
+- NexusMods listing (the end goal for reaching modlist users): mod page
+  under Skyrim SE utilities, Windows zip from the GitHub release uploaded
+  to Nexus, GitHub linked for source/other platforms/issues.
 - App self-update beyond notify-and-link (exe self-replacement) if users
   ask for it; package-manager installs already upgrade via uv/pipx.
 - Performance note (settled): parsed manifests are cached under

@@ -58,6 +58,18 @@ jobs:
         run: uv sync --extra gui --group release
       - name: Build executable pair
         run: uv run pyinstaller packaging/modsweep.spec
+      - name: Smoke-test the frozen CLI
+        shell: bash
+        run: |
+          exe=dist/modsweep
+          [ "${{ runner.os }}" = "Windows" ] && exe=dist/modsweep.exe
+          "$exe" --help
+          # The riskiest freeze failure: bundled manifests must resolve from
+          # inside the executable's package data.
+          mkdir -p smoke/downloads
+          echo "nolvus = ['bundled']" > smoke/modsweep.toml
+          "$exe" report --config smoke/modsweep.toml \
+            --downloads smoke/downloads --cache smoke/c.sqlite | grep -i nolvus
       - name: Package artifacts
         shell: bash
         run: |

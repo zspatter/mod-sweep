@@ -63,7 +63,10 @@ try:
     )
 except ImportError:  # pragma: no cover - exercised only without the extra
     print(
-        "modsweep-gui requires the gui extra: uv sync --extra gui",
+        "modsweep-gui requires the GUI dependencies.\n"
+        '  installed tool:  uv tool install "modsweep[gui]"  '
+        '(or pipx install "modsweep[gui]")\n'
+        "  source checkout: uv sync --extra gui",
         file=sys.stderr,
     )
     raise

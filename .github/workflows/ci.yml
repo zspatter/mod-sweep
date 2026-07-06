@@ -41,6 +41,22 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+  # The unit suite fakes GitHub; the weekly run also checks the real API
+  # contract the update paths depend on (manifest index, latest release).
+  live-api:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3'
+          enable-cache: true
+      - run: uv sync
+      - run: uv run pytest tests/test_live_remote.py -q
+        env:
+          MODSWEEP_LIVE_TESTS: '1'
+
   # GitHub pauses cron-triggered workflows after ~60 days without repo
   # activity; the schedule alone cannot keep itself alive. Re-enabling an
   # already-enabled workflow resets that timer, so each scheduled run
