@@ -95,26 +95,84 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 
-    window = MainWindow(config_path, show_welcome=False)
-    window.show_result_popups = False
-    window.resize(1200, 750)
-    window.show()
-    settle(window, app)  # sources loaded
-    window.run_report()
-    settle(window, app)
-    scrub_private_rows(window)
-    app.processEvents()
-    window.grab().save(str(out / "report.png"))
-
-    dialog = ConfigEditorDialog(window.cfg)
-    dialog.resize(780, 580)
-    dialog.show()
-    for _ in range(20):
+    app.setStyle("Fusion")  # style whose palette we can drive headless
+    light_palette = app.palette()
+    shots = {}
+    for palette, suffix in ((light_palette, "light"), (_dark_palette(), "dark")):
+        app.setPalette(palette)
+        window = MainWindow(config_path, show_welcome=False)
+        window.show_result_popups = False
+        window.resize(1200, 750)
+        window.show()
+        settle(window, app)  # sources loaded
+        window.run_report()
+        settle(window, app)
+        scrub_private_rows(window)
         app.processEvents()
-    dialog.grab().save(str(out / "config-editor.png"))
+        report = window.grab()
+        report.save(str(out / f"report-{suffix}.png"))
 
-    print(f"wrote {out / 'report.png'} and {out / 'config-editor.png'}")
+        dialog = ConfigEditorDialog(window.cfg)
+        dialog.resize(780, 580)
+        dialog.show()
+        for _ in range(20):
+            app.processEvents()
+        editor = dialog.grab()
+        editor.save(str(out / f"config-editor-{suffix}.png"))
+        dialog.close()
+        window.close()
+        shots[suffix] = (report, editor)
+
+    # Side-by-side light|dark composites keep the README filenames stable;
+    # the per-mode files serve pages wanting one theme (Nexus takes dark).
+    _stitch(shots["light"][0], shots["dark"][0], out / "report.png")
+    _stitch(shots["light"][1], shots["dark"][1], out / "config-editor.png")
+    print(f"wrote light/dark pairs and composites to {out}")
     return 0
+
+
+def _dark_palette():
+    """Fusion dark palette: the offscreen platform ignores OS color-scheme
+    hints, so the dark capture drives the palette directly (script-level
+    only - the app itself still follows the system theme)."""
+    from PySide6.QtGui import QColor, QPalette
+
+    palette = QPalette()
+    window, base, text = QColor(53, 53, 53), QColor(35, 35, 35), QColor(222, 222, 222)
+    for role, color in (
+        (QPalette.ColorRole.Window, window),
+        (QPalette.ColorRole.WindowText, text),
+        (QPalette.ColorRole.Base, base),
+        (QPalette.ColorRole.AlternateBase, QColor(45, 45, 45)),
+        (QPalette.ColorRole.Text, text),
+        (QPalette.ColorRole.Button, window),
+        (QPalette.ColorRole.ButtonText, text),
+        (QPalette.ColorRole.ToolTipBase, base),
+        (QPalette.ColorRole.ToolTipText, text),
+        (QPalette.ColorRole.PlaceholderText, QColor(150, 150, 150)),
+        (QPalette.ColorRole.Highlight, QColor(42, 130, 218)),
+        (QPalette.ColorRole.HighlightedText, QColor(240, 240, 240)),
+        (QPalette.ColorRole.Link, QColor(90, 160, 255)),
+    ):
+        palette.setColor(role, color)
+    return palette
+
+
+def _stitch(left, right, path: Path) -> None:
+    from PySide6.QtGui import QImage, QPainter
+
+    gap = 12
+    image = QImage(
+        left.width() + right.width() + gap,
+        max(left.height(), right.height()),
+        QImage.Format.Format_ARGB32,
+    )
+    image.fill(0)  # transparent seam
+    painter = QPainter(image)
+    painter.drawPixmap(0, 0, left)
+    painter.drawPixmap(left.width() + gap, 0, right)
+    painter.end()
+    image.save(str(path))
 
 
 if __name__ == "__main__":
