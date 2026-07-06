@@ -1000,3 +1000,282 @@ def test_open_config_switches_active_config(tmp_path, monkeypatch):
     wait_idle(win)  # sources refresh against the new config
     assert win.config_path == other
     assert str(other) in win.status_config.text()
+
+
+# --- action endpoints: outcomes and refusal paths ---------------------------
+
+
+def test_sweep_apply_with_no_candidates_reports_nothing_to_move(tmp_path, monkeypatch):
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    (dl / "claimed.7z").write_bytes(b"CLAIMED")
+    make_wabbajack(
+        tmp_path / "a.wabbajack", "A", "1.0",
+        [("claimed.7z", 7, wj_hash(b"CLAIMED"))],
+    )
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{tmp_path / 'a.wabbajack'}']\n"
+        f"[quarantine]\ndir = '{tmp_path / 'q'}'\n",
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.run_sweep(apply=True)
+    wait_idle(win)
+    assert "Nothing to move - no eligible candidates." in win.console.toPlainText()
+    assert (dl / "claimed.7z").exists()
+
+
+def test_restore_summary_reports_skipped_and_missing(tmp_path, monkeypatch):
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    (dl / "junk1.7z").write_bytes(b"J1")
+    (dl / "junk2.7z").write_bytes(b"J2")
+    make_wabbajack(tmp_path / "a.wabbajack", "A", "1.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{tmp_path / 'a.wabbajack'}']\n"
+        f"[quarantine]\ndir = '{tmp_path / 'q'}'\n",
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+    win.run_hash_candidates()
+    wait_idle(win)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.run_sweep(apply=True)
+    wait_idle(win)
+    wait_idle(win)  # chained report
+    (batch,) = sweep_mod.list_batches(tmp_path / "q")
+
+    (dl / "junk1.7z").write_bytes(b"OCCUPANT")  # original path taken
+    (batch.path / "junk2.7z").unlink()  # gone from the batch
+
+    win.run_restore(batch.path)
+    wait_idle(win)
+    text = win.console.toPlainText()
+    assert "1 skipped (original path occupied)." in text
+    assert "1 missing from the batch." in text
+
+
+def test_quarantine_file_requires_a_report_first(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.quarantine_file("junk.7z")  # no report has run: nothing stored
+    assert "not in the last report - run Report first" in win.console.toPlainText()
+
+
+def test_quarantine_file_refuses_unhashed_candidate(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_report()  # stores results; junk.7z is a candidate but unhashed
+    wait_idle(win)
+    win.quarantine_file("junk.7z")
+    wait_idle(win)
+    text = win.console.toPlainText()
+    assert "Refused: junk.7z has no verified hash" in text
+    assert (tmp_path / "downloads" / "junk.7z").exists()
+
+
+def test_quarantine_file_rejects_protected_file(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_report()
+    wait_idle(win)
+    win.quarantine_file("claimed.7z")  # keep-status: never a candidate
+    wait_idle(win)
+    assert "claimed.7z is not an eligible candidate." in win.console.toPlainText()
+    assert (tmp_path / "downloads" / "claimed.7z").exists()
+
+
+def test_manifest_update_reports_up_to_date(tmp_path, monkeypatch):
+    from modsweep import remote
+
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    monkeypatch.setattr(remote, "update_manifests", lambda: [])
+    win.run_manifest_update()
+    wait_idle(win)
+    wait_idle(win)  # chained source refresh
+    assert "Bundled manifests are up to date." in win.console.toPlainText()
+
+
+# --- batch descriptions and the trust-period note ----------------------------
+
+
+def test_describe_batch_falls_back_for_unknown_paths(tmp_path):
+    from pathlib import Path
+
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    ghost = Path(tmp_path / "q" / "not-a-batch")
+    assert win._describe_batch(ghost) == str(ghost)
+    assert win._trust_period_note(ghost) == ""
+
+
+def test_trust_period_note_only_for_young_batches(tmp_path, monkeypatch):
+    app()
+    win = swept_window(tmp_path)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.run_sweep(apply=True)
+    wait_idle(win)
+    wait_idle(win)
+    (batch,) = sweep_mod.list_batches(tmp_path / "quarantine")
+    assert "younger than the" in win._trust_period_note(batch.path)
+
+    aged = batch.path.with_name("2020-01-01_000000")
+    batch.path.rename(aged)
+    assert win._trust_period_note(aged) == ""  # past the trust period: no note
+
+
+# --- pin/unpin error paths ----------------------------------------------------
+
+
+def test_pin_and_unpin_reject_unknown_labels(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.pin_source("Ghost 9.9")
+    win.unpin_source("Ghost 9.9")
+    text = win.console.toPlainText()
+    assert text.count("is not in the current source list") == 2
+
+
+def test_pin_source_already_pinned_is_a_noop(tmp_path):
+    app()
+    win = window(build_config(tmp_path))  # wabbajack entry is a file: pinned
+    wait_idle(win)
+    before = win.cfg
+    win.pin_source("A 1.0")
+    assert "already pinned." in win.console.toPlainText()
+    assert win.cfg is before  # config untouched
+
+
+def test_unpin_source_requires_an_explicit_entry(tmp_path):
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    (dl / "x.7z").write_bytes(b"X")
+    (tmp_path / "lists").mkdir()
+    make_wabbajack(tmp_path / "lists" / "a.wabbajack", "A", "1.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{tmp_path / 'lists'}']\n",  # dir walk: implicit
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+    win.unpin_source("A 1.0")
+    assert "not pinned by an explicit entry." in win.console.toPlainText()
+
+
+# --- widget and plumbing units -------------------------------------------------
+
+
+def test_numeric_item_falls_back_to_text_compare_with_plain_items(tmp_path):
+    from PySide6.QtWidgets import QTableWidgetItem
+
+    from modsweep.gui.window import NumericItem
+
+    app()
+    assert NumericItem(2, "2").__lt__(QTableWidgetItem("10")) is False  # "2" > "10"
+    assert (NumericItem(2, "2") < NumericItem(10, "10")) is True  # numeric
+
+
+def test_start_ignores_second_action_while_busy(tmp_path):
+    import threading
+
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    gate = threading.Event()
+
+    def slow(worker):
+        gate.wait(10)
+
+    win._start(slow, "Slow")
+    first = win._worker
+    win._start(lambda worker: None, "Second")  # one action at a time
+    assert win._worker is first
+    gate.set()
+    wait_idle(win)
+
+
+def test_progress_signal_switches_between_modes(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win._on_progress(3, 10)
+    assert (win.progress.maximum(), win.progress.value()) == (10, 3)
+    win._on_progress(0, 0)  # totals of zero mean indeterminate again
+    assert win.progress.maximum() == 0
+
+
+def test_linestream_buffers_partial_lines_and_flushes(tmp_path):
+    from modsweep.gui.workers import _LineStream
+
+    seen = []
+    stream = _LineStream(seen.append)
+    stream.write("first line\nsecond ")
+    assert seen == ["first line"]
+    stream.write("half\n\n   \n")  # blank lines never reach the log
+    assert seen == ["first line", "second half"]
+    stream.write("tail without newline")
+    stream.flush_pending()
+    assert seen[-1] == "tail without newline"
+    stream.flush_pending()  # nothing pending: no duplicate
+    assert seen.count("tail without newline") == 1
+
+
+def test_gui_log_handler_formats_through_bridge(tmp_path):
+    import logging
+
+    from modsweep.gui.workers import GuiLogHandler, LogBridge
+
+    app()
+    seen = []
+    bridge = LogBridge()
+    bridge.message.connect(seen.append)
+    handler = GuiLogHandler(bridge)
+    record = logging.LogRecord(
+        "modsweep.matcher", logging.INFO, __file__, 1, "matched %d files", (7,), None
+    )
+    handler.emit(record)
+    assert seen == ["INFO modsweep.matcher: matched 7 files"]
+
+
+def test_path_list_editor_add_and_remove(tmp_path):
+    from modsweep.gui.editor import PathListEditor
+
+    app()
+    editor = PathListEditor(["one", "two"], None, False, text_only=True)
+    editor.pattern_edit.setText("   ")  # whitespace only: nothing added
+    editor._add_text()
+    assert editor.values() == ["one", "two"]
+    editor.pattern_edit.setText("three")
+    editor._add_text()
+    assert editor.values() == ["one", "two", "three"]
+    editor.list.item(0).setSelected(True)
+    editor._remove_selected()
+    assert editor.values() == ["two", "three"]
