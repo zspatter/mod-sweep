@@ -13,8 +13,11 @@ from modsweep.cli import (
     _infer_file_kind,
     _purge_threshold,
     _resolve,
+    exact_exclude_pattern,
+    is_exact_exclude,
     load_manifests,
     main,
+    survey_sources,
 )
 from modsweep.config import Config
 
@@ -140,6 +143,50 @@ def test_purge_threshold_precedence():
     assert _purge_threshold(explicit, Config(quarantine_keep_days=10)) == 5
     assert _purge_threshold(unset, Config(quarantine_keep_days=10)) == 10
     assert _purge_threshold(unset, Config()) == 30
+
+
+# --- survey (nothing dropped, states tagged) --------------------------------
+
+
+def survey_fixture(tmp_path):
+    wj_dir = tmp_path / "lists"
+    wj_dir.mkdir()
+    make_wj(wj_dir / "old.wabbajack", "X", "1.0")
+    make_wj(wj_dir / "new.wabbajack", "X", "2.0")
+    make_wj(wj_dir / "other.wabbajack", "Other", "1.0")
+    return _expand_wabbajack([wj_dir])
+
+
+def test_survey_tags_active_excluded_and_superseded(tmp_path):
+    sources = survey_fixture(tmp_path)
+    infos = {
+        i.manifest.label: i
+        for i in survey_sources(sources, exclude=["Other*"], latest_only=True)
+    }
+    assert len(infos) == 3  # nothing dropped
+    assert infos["X 2.0"].state == "active"
+    assert (infos["X 1.0"].state, infos["X 1.0"].detail) == ("superseded", "X 2.0")
+    assert (infos["Other 1.0"].state, infos["Other 1.0"].detail) == ("excluded", "Other*")
+
+
+def test_survey_tags_pinned(tmp_path):
+    wj_dir = tmp_path / "lists"
+    sources = survey_fixture(tmp_path) + _expand_wabbajack([wj_dir / "old.wabbajack"])
+    infos = {i.manifest.label: i.state for i in survey_sources(sources, latest_only=True)}
+    assert infos["X 1.0"] == "pinned"
+    assert infos["X 2.0"] == "active"
+
+
+def test_exact_exclude_pattern_survives_brackets():
+    label = "[NoDelete] Licentia Next"
+    pattern = exact_exclude_pattern(label)
+    assert is_exact_exclude(pattern, label)
+    assert is_exact_exclude(label.upper(), label)  # raw label, case-insensitive
+    assert not is_exact_exclude("LoreRim*", "LoreRim 2.2.11")  # glob is not exact
+    # the escaped pattern actually matches through the exclusion machinery
+    from modsweep.cli import _excluded_by
+
+    assert _excluded_by(label, [pattern]) == pattern
 
 
 # --- end-to-end through main() --------------------------------------------

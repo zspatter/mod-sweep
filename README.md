@@ -230,7 +230,14 @@ uv run modsweep-gui          # optional: pass a config path
 ```
 
 The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
-(Open Config... to switch) and lists the active sources. Edit Config...
+(Open Config... to switch) and surveys every resolvable source into a
+checkable list — active and pinned sources are ticked; excluded and
+superseded ones stay visible but unticked, each explaining itself on hover.
+Untick lists to retire them (All/None for bulk) and Apply Selection writes
+exact-label excludes to the config for you; ticking an excluded list
+reinstates it (glob-excluded and superseded entries are locked, with the
+tooltip pointing at the editor). Action results pop up as dialogs in
+addition to the status bar and Log, so outcomes are unmissable. Edit Config...
 opens a full editor — downloads/quarantine folder pickers, purge trust
 period, latest-only toggle, per-kind source tabs (Wabbajack / Nolvus /
 Installs / Recovery / Snapshots) with add-file/add-folder buttons, and the
@@ -267,13 +274,10 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 
 ## Roadmap
 
-- GUI config editor growth: toggle each *resolved* source on/off
-  individually (writing excludes), including choosing which bundled Nolvus
-  versions to keep — the pinning mechanics already support "latest plus
-  these specific versions"; the editor just needs to surface it per-source
-  rather than per-entry.
-- GUI growth: streaming announcements instead of end-of-action replay; a
-  real .ico to replace the emoji-rendered broom.
+- GUI growth: one-click pinning of superseded versions (adding the
+  explicit file entry the tooltip describes); streaming announcements
+  instead of end-of-action replay; a real .ico to replace the
+  emoji-rendered broom.
 - Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
   install modsweep` delivers both CLI and GUI without cloning; then a
   release workflow building standalone executables per platform (the

@@ -37,6 +37,7 @@ try:
         QLabel,
         QLineEdit,
         QListWidget,
+        QListWidgetItem,
         QMainWindow,
         QMenu,
         QMessageBox,
@@ -58,9 +59,20 @@ except ImportError:  # pragma: no cover - exercised only without the extra
     )
     raise
 
+from dataclasses import replace
+
 from . import config, state, sweep as sweep_mod
 from .cache import HashCache
-from .cli import DEFAULT_CACHE, _quarantine_dir_for, config_sources, load_manifests
+from .cli import (
+    DEFAULT_CACHE,
+    SourceInfo,
+    _quarantine_dir_for,
+    config_sources,
+    exact_exclude_pattern,
+    is_exact_exclude,
+    load_manifests,
+    survey_sources,
+)
 from .hashutil import hash_file
 from .manifest import Manifest
 from .matcher import STALE, UNCLAIMED, match
@@ -97,6 +109,25 @@ TOOLTIPS = {
     "unrecoverable action in modsweep",
 }
 
+
+RESOLUTION_HELP = """\
+How sources become active (precedence: exclude > pin > latest-only > active):
+
+- Everything found is active by default. Forgetting a list keeps its files \
+- only explicit action exposes files for sweeping.
+- Folder entries are walked and load implicitly; files you name yourself \
+are PINNED: the latest-only filter never drops them.
+- Excludes retire a list without touching any of its files.
+- latest_only keeps only the newest version of each list (by list name); \
+pinned files still count as versions, so pinning the newest does not \
+resurrect older ones.
+
+Retiring a list:
+1. Untick it under Active sources (writes an exclude for you), add an \
+exclude glob in the editor, or remove its manifest file.
+2. Run Report - its uniquely-claimed archives become candidates.
+3. Sweep when ready. Keep the .wabbajack (or a snapshot) so reinstating \
+later is painless."""
 
 STATUS_HELP = {
     "keep-verified": "Hash matches an active source - protected",
@@ -227,15 +258,40 @@ class ConfigEditorDialog(QDialog):
 
     SOURCE_TABS = (
         ("wabbajack", "Wabbajack", "Wabbajack lists (*.wabbajack *.json)", True,
-         ".wabbajack files, or folders searched recursively for them"),
+         "Wabbajack modlists - the complete source of truth (name + size + "
+         "hash per archive). Add a <i>folder</i> to use every .wabbajack "
+         "inside it (all versions, filterable by latest-only); add a "
+         "specific <i>file</i> to pin that exact version so no filter drops "
+         "it. Wabbajack keeps downloaded lists under "
+         "&lt;install&gt;\\&lt;version&gt;\\downloaded_mod_lists."),
         ("nolvus", "Nolvus", "Nolvus manifests (*.xml *.xml.gz)", True,
-         "InstallPackage files; the repo's bundled folder works as one entry"),
+         "Nolvus installer manifests (InstallPackage.xml / .xml.gz). This "
+         "project bundles them under manifests/nolvus - add that folder "
+         "once and new guide versions arrive with app updates. Adding a "
+         "specific file pins that guide version."),
         ("installs", "Installs", None, True,
-         "MO2 installs holding [NoDelete] custom additions (or their parent)"),
+         "MO2 installations checked for [NoDelete]-prefixed custom "
+         "additions: each such mod's source archive is protected in the "
+         "downloads folder. Add one install (the folder containing mods/) "
+         "or a parent folder whose direct children are installs. Installs "
+         "without [NoDelete] mods contribute nothing and are skipped."),
         ("recovery", "Recovery", None, True,
-         "installs whitelisted whole by archive name - manifest-loss fallback"),
+         "Fallback for lists whose .wabbajack manifest is gone: every "
+         "archive the install's mods were made from is whitelisted by NAME "
+         "only. Weaker than a real manifest - it cannot tell versions "
+         "apart beyond the file name - so prefer keeping the .wabbajack "
+         "or a snapshot."),
         ("snapshots", "Snapshots", "Snapshots (*.json)", False,
-         "snapshot JSONs exported by modsweep snapshot"),
+         "Compact whitelists exported by `modsweep snapshot`. A snapshot "
+         "classifies identically to the manifest it came from and survives "
+         "that manifest's deletion - cheap insurance before uninstalling "
+         "Wabbajack."),
+    )
+    EXCLUDE_DESC = (
+        "Retire lists without touching any files: case-insensitive globs "
+        "matched against the list label ('LoreRim 2.2*') or the manifest "
+        "file name. Tip: unchecking a source in the main window manages "
+        "exact-label entries here for you."
     )
 
     def __init__(self, cfg: config.Config, parent=None):
@@ -266,30 +322,40 @@ class ConfigEditorDialog(QDialog):
 
         self.editors: dict[str, PathListEditor] = {}
         tabs = QTabWidget()
-        for key, title, file_filter, allow_dirs, tip in self.SOURCE_TABS:
+        for key, title, file_filter, allow_dirs, desc in self.SOURCE_TABS:
             editor = PathListEditor(getattr(cfg, key), file_filter, allow_dirs)
-            editor.setToolTip(tip)
             self.editors[key] = editor
-            tabs.addTab(editor, title)
+            tabs.addTab(self._described_page(desc, editor), title)
         self.exclude_editor = PathListEditor(cfg.exclude, None, False, text_only=True)
-        self.exclude_editor.setToolTip(
-            "Retire lists: case-insensitive globs matched against the list "
-            "label or manifest file name"
-        )
-        tabs.addTab(self.exclude_editor, "Exclude")
+        tabs.addTab(self._described_page(self.EXCLUDE_DESC, self.exclude_editor), "Exclude")
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
+            | QDialogButtonBox.StandardButton.Help
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        buttons.helpRequested.connect(self._show_help)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(QLabel("<b>Sources of truth</b>"))
         layout.addWidget(tabs, 1)
         layout.addWidget(buttons)
+
+    @staticmethod
+    def _described_page(description: str, editor: PathListEditor) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        label = QLabel(description)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        layout.addWidget(editor, 1)
+        return page
+
+    def _show_help(self) -> None:  # pragma: no cover - modal dialog
+        QMessageBox.information(self, "Source resolution & retirement", RESOLUTION_HELP)
 
     def _with_browse(self, edit: QLineEdit) -> QWidget:
         browse = QPushButton("Browse...")
@@ -336,6 +402,7 @@ class Worker(QThread):
 
     line = Signal(str)
     status = Signal(str)  # one-line action summary for the status bar
+    summary = Signal(str)  # action result: status bar + log + popup
     progress = Signal(int, int)  # done, total; total 0 hides the bar
     payload = Signal(object)  # (kind, data) delivered back to the UI thread
     failed = Signal(str)
@@ -364,11 +431,16 @@ class MainWindow(QMainWindow):
         self.resize(1200, 750)
         self._worker: Worker | None = None
 
+        self.show_result_popups = True
         self.sources_list = QListWidget()
         self.sources_list.setAlternatingRowColors(True)
         self.sources_list.setToolTip(
-            "Active sources of truth: every file they name is protected"
+            "Every checked source protects the files it names.\n"
+            "Untick a list to retire it (Apply Selection writes an exclude "
+            "for you); tick an excluded one to reinstate it.\n\n" + RESOLUTION_HELP
         )
+        self.sources_list.itemChanged.connect(self._on_source_toggled)
+        self._suppress_source_signal = False
 
         self._build_buttons()
         self._build_tabs()
@@ -380,11 +452,35 @@ class MainWindow(QMainWindow):
             bar.addWidget(button)
         bar.addStretch()
 
+        header = QLabel("<b>Active sources</b>")
+        header.setToolTip(RESOLUTION_HELP)
+
+        self.select_all_btn = QPushButton("All")
+        self.select_none_btn = QPushButton("None")
+        self.apply_selection_btn = QPushButton("Apply Selection")
+        self.select_all_btn.setToolTip("Check every selectable source")
+        self.select_none_btn.setToolTip("Uncheck every selectable source")
+        self.apply_selection_btn.setToolTip(
+            "Write the checkbox choices to the config as exact-label "
+            "excludes, then reload"
+        )
+        self.select_all_btn.clicked.connect(lambda: self._set_all_sources(True))
+        self.select_none_btn.clicked.connect(lambda: self._set_all_sources(False))
+        self.apply_selection_btn.clicked.connect(self.apply_source_selection)
+        self.apply_selection_btn.setEnabled(False)
+
+        selection_bar = QHBoxLayout()
+        selection_bar.addWidget(self.select_all_btn)
+        selection_bar.addWidget(self.select_none_btn)
+        selection_bar.addStretch()
+        selection_bar.addWidget(self.apply_selection_btn)
+
         sources_pane = QWidget()
         sources_layout = QVBoxLayout(sources_pane)
         sources_layout.setContentsMargins(0, 0, 0, 0)
-        sources_layout.addWidget(QLabel("<b>Active sources</b>"))
+        sources_layout.addWidget(header)
         sources_layout.addWidget(self.sources_list)
+        sources_layout.addLayout(selection_bar)
 
         splitter = QSplitter()
         splitter.addWidget(sources_pane)
@@ -545,6 +641,24 @@ class MainWindow(QMainWindow):
         manifests = load_manifests(
             config_sources(self.cfg), self.cfg.exclude, self.cfg.latest_only
         )
+        self._check_drift(worker, manifests)
+        return manifests
+
+    def refresh_sources(self) -> None:
+        def action(worker: Worker) -> None:
+            infos = survey_sources(
+                config_sources(self.cfg), self.cfg.exclude, self.cfg.latest_only
+            )
+            actives = [
+                i.manifest for i in infos if i.state in ("active", "pinned")
+            ]
+            self._check_drift(worker, actives)
+            worker.payload.emit(("sources", infos))
+            worker.status.emit(f"{len(actives)} active source(s) loaded.")
+
+        self._start(action, "Loading sources")
+
+    def _check_drift(self, worker: Worker, manifests: list[Manifest]) -> None:
         state_path = self._cache_path().parent / state.STATE_NAME
         for label, source in state.vanished(state.read(state_path), manifests):
             worker.line.emit(
@@ -552,15 +666,6 @@ class MainWindow(QMainWindow):
                 f"({source} no longer exists)"
             )
         state.write(state_path, manifests)
-        return manifests
-
-    def refresh_sources(self) -> None:
-        def action(worker: Worker) -> None:
-            manifests = self._load_active(worker)
-            worker.payload.emit(("sources", manifests))
-            worker.status.emit(f"{len(manifests)} active source(s) loaded.")
-
-        self._start(action, "Loading sources")
 
     # --- actions ---------------------------------------------------------------
 
@@ -601,7 +706,7 @@ class MainWindow(QMainWindow):
                     worker.progress.emit(i, len(pending))
             finally:
                 cache.close()
-            worker.status.emit(
+            worker.summary.emit(
                 f"Hashing done - {len(pending):,} candidate file(s) hashed."
             )
 
@@ -638,7 +743,7 @@ class MainWindow(QMainWindow):
                     f"file(s) - use Hash Candidates first"
                 )
             if not apply:
-                worker.status.emit(
+                worker.summary.emit(
                     f"Dry run: {len(plan.ready):,} files / "
                     f"{_gb(plan.ready_bytes)} would be quarantined"
                     + (f"; {len(plan.refused):,} refused (unhashed)" if plan.refused else "")
@@ -646,10 +751,10 @@ class MainWindow(QMainWindow):
                 )
                 return
             if not plan.ready:
-                worker.status.emit("Nothing to move - no eligible candidates.")
+                worker.summary.emit("Nothing to move - no eligible candidates.")
                 return
             batch = sweep_mod.execute(plan, quarantine)
-            worker.status.emit(
+            worker.summary.emit(
                 f"Moved {len(plan.ready):,} files ({_gb(plan.ready_bytes)}) "
                 f"to {batch.name} - restorable."
             )
@@ -669,7 +774,7 @@ class MainWindow(QMainWindow):
                 message += f" {skipped:,} skipped (original path occupied)."
             if missing:
                 message += f" {missing:,} missing from the batch."
-            worker.status.emit(message)
+            worker.summary.emit(message)
 
         self._start(action, "Restoring", then_report=True)
 
@@ -693,7 +798,7 @@ class MainWindow(QMainWindow):
 
         def action(worker: Worker) -> None:
             sweep_mod.purge_batch(Path(batch))
-            worker.status.emit(f"Purged {Path(batch).name} - permanently deleted.")
+            worker.summary.emit(f"Purged {Path(batch).name} - permanently deleted.")
 
         self._start(action, "Purging")
 
@@ -744,20 +849,20 @@ class MainWindow(QMainWindow):
             finally:
                 cache.close()
             if plan.refused:
-                worker.status.emit(
+                worker.summary.emit(
                     f"Refused: {rel} has no verified hash - run Hash Candidates first."
                 )
                 return
             if not plan.ready:
-                worker.status.emit(f"{rel} is not an eligible candidate.")
+                worker.summary.emit(f"{rel} is not an eligible candidate.")
                 return
             quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
             batch = sweep_mod.execute(plan, quarantine, tag="file")
             if purge:
                 sweep_mod.purge_batch(batch)
-                worker.status.emit(f"Deleted {rel} - permanently.")
+                worker.summary.emit(f"Deleted {rel} - permanently.")
             else:
-                worker.status.emit(
+                worker.summary.emit(
                     f"Quarantined {rel} -> {batch.name} (restorable)."
                 )
 
@@ -809,10 +914,72 @@ class MainWindow(QMainWindow):
             manifests, results = data
             self._show_report(manifests, results)
 
-    def _show_sources(self, manifests: list[Manifest]) -> None:
+    def _show_sources(self, infos: list[SourceInfo]) -> None:
+        self._suppress_source_signal = True
         self.sources_list.clear()
-        for m in manifests:
-            self.sources_list.addItem(f"{m.label}  ({len(m.entries)} entries)")
+        for info in infos:
+            m = info.manifest
+            item = QListWidgetItem(f"{m.label}  ({len(m.entries)} entries)")
+            item.setData(Qt.ItemDataRole.UserRole, (m.label, info.state, info.detail))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            if info.state in ("active", "pinned"):
+                item.setCheckState(Qt.CheckState.Checked)
+                if info.state == "pinned":
+                    item.setToolTip(
+                        f"Pinned: named explicitly in the config, kept "
+                        f"despite {info.detail}"
+                    )
+                else:
+                    item.setToolTip("Active - untick to retire this list")
+            elif info.state == "excluded":
+                item.setCheckState(Qt.CheckState.Unchecked)
+                if is_exact_exclude(info.detail, m.label):
+                    item.setToolTip("Excluded - tick to reinstate")
+                else:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                    item.setToolTip(
+                        f"Excluded by the pattern '{info.detail}' - manage "
+                        f"it under Edit Config > Exclude"
+                    )
+            else:  # superseded by latest-only
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip(
+                    f"Superseded by {info.detail} (latest-only). To keep "
+                    f"this version anyway, add its manifest file explicitly "
+                    f"under Edit Config - explicit entries are pinned."
+                )
+            self.sources_list.addItem(item)
+        self._suppress_source_signal = False
+        self.apply_selection_btn.setEnabled(False)
+
+    def _on_source_toggled(self, _item) -> None:
+        if not self._suppress_source_signal:
+            self.apply_selection_btn.setEnabled(True)
+
+    def _set_all_sources(self, checked: bool) -> None:
+        target = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for i in range(self.sources_list.count()):
+            item = self.sources_list.item(i)
+            if item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                item.setCheckState(target)
+
+    def apply_source_selection(self) -> None:
+        """Translate the checkboxes into exact-label excludes and reload."""
+        exclude = list(self.cfg.exclude)
+        for i in range(self.sources_list.count()):
+            item = self.sources_list.item(i)
+            if not item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                continue
+            label, source_state, _detail = item.data(Qt.ItemDataRole.UserRole)
+            checked = item.checkState() == Qt.CheckState.Checked
+            if source_state in ("active", "pinned") and not checked:
+                pattern = exact_exclude_pattern(label)
+                if not any(is_exact_exclude(e, label) for e in exclude):
+                    exclude.append(pattern)
+            elif source_state == "excluded" and checked:
+                exclude = [e for e in exclude if not is_exact_exclude(e, label)]
+        self.apply_config(replace(self.cfg, exclude=exclude))
 
     def _show_report(self, manifests: list[Manifest], results) -> None:
         self._last_results = {r.disk.rel: r for r in results}
@@ -871,6 +1038,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text, 30_000)
         self.log(text)
 
+    def _on_summary(self, text: str) -> None:
+        """Action results: status bar + log, plus a popup so the outcome is
+        unmissable even when the user is watching another tab."""
+        self._on_status(text)
+        if self.show_result_popups:
+            QMessageBox.information(self, "modsweep", text)
+
     def _cache_path(self) -> Path:
         return self.cfg.cache or DEFAULT_CACHE
 
@@ -881,6 +1055,7 @@ class MainWindow(QMainWindow):
         self._worker = Worker(fn, parent=self)
         self._worker.line.connect(self.log)
         self._worker.status.connect(self._on_status)
+        self._worker.summary.connect(self._on_summary)
         self._worker.progress.connect(self._on_progress)
         self._worker.payload.connect(self._on_payload)
         self._worker.failed.connect(lambda msg: self._on_status(f"error: {msg}"))

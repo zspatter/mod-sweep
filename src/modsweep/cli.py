@@ -317,6 +317,56 @@ def _excluded_by(name: str, exclude: list[str]) -> str | None:
     return None
 
 
+def exact_exclude_pattern(label: str) -> str:
+    """A glob matching exactly this label (brackets etc. escaped, so
+    '[NoDelete] X' style labels survive fnmatch)."""
+    import glob
+
+    return glob.escape(label)
+
+
+def is_exact_exclude(pattern: str, label: str) -> bool:
+    """True when `pattern` is the exact-label exclude for `label` (either the
+    raw label or its escaped form) - i.e. safely removable to reinstate."""
+    return pattern.lower() in (label.lower(), exact_exclude_pattern(label).lower())
+
+
+@dataclass
+class SourceInfo:
+    manifest: Manifest
+    state: str  # active | pinned | excluded | superseded
+    detail: str = ""  # the exclude pattern, or the winning label
+
+
+def survey_sources(
+    sources: list[tuple[str, Path, bool]],
+    exclude: list[str] | None = None,
+    latest_only: bool = False,
+) -> list[SourceInfo]:
+    """Resolve like load_manifests but drop nothing: every parseable source
+    comes back tagged, so a UI can offer reinstatement of excluded or
+    superseded lists. Emits no announcements (the tags carry the story)."""
+    exclude = exclude or []
+    manifests, pinned = _load_sources(sources, [])
+    flags: dict[str, tuple[str, str]] = {}
+    for m in manifests:
+        pattern = _excluded_by(m.label, exclude) or _excluded_by(
+            m.source_path.name, exclude
+        )
+        if pattern:
+            flags[m.label] = ("excluded", pattern)
+    if latest_only:
+        from .manifest import latest_only as filter_latest
+
+        remaining = [m for m in manifests if m.label not in flags]
+        _, superseded, pinned_kept = filter_latest(remaining, pinned)
+        for old, winner in superseded:
+            flags[old.label] = ("superseded", winner.label)
+        for m, winner in pinned_kept:
+            flags[m.label] = ("pinned", winner.label)
+    return [SourceInfo(m, *flags.get(m.label, ("active", ""))) for m in manifests]
+
+
 def config_sources(cfg: config.Config) -> list[tuple[str, Path, bool]]:
     """Expand a config's typed source lists (shared by the CLI and the GUI)."""
     sources = _expand_wabbajack(cfg.wabbajack)

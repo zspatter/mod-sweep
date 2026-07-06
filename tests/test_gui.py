@@ -21,7 +21,9 @@ def app():
 
 
 def window(cfg):
-    return MainWindow(cfg, show_welcome=False)
+    win = MainWindow(cfg, show_welcome=False)
+    win.show_result_popups = False  # modal dialogs would hang offscreen tests
+    return win
 
 
 def wait_idle(win, timeout_ms=15_000):
@@ -228,6 +230,105 @@ def test_pipeline_log_lines_drain_into_console(tmp_path):
     assert "INFO modsweep.matcher: matched" in text
 
 
+def build_two_list_config(tmp_path):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    make_wabbajack(tmp_path / "a.wabbajack", "A", "1.0", [])
+    make_wabbajack(tmp_path / "b.wabbajack", "B", "1.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{tmp_path / 'a.wabbajack'}', '{tmp_path / 'b.wabbajack'}']\n",
+        encoding="utf-8",
+    )
+    return cfg
+
+
+def find_item(win, label):
+    from PySide6.QtCore import Qt
+
+    for i in range(win.sources_list.count()):
+        item = win.sources_list.item(i)
+        if item.data(Qt.ItemDataRole.UserRole)[0] == label:
+            return item
+    raise AssertionError(f"{label} not in sources list")
+
+
+def test_untick_and_apply_retires_then_reinstates(tmp_path):
+    from PySide6.QtCore import Qt
+
+    from modsweep import config
+
+    app()
+    win = window(build_two_list_config(tmp_path))
+    wait_idle(win)
+    assert not win.apply_selection_btn.isEnabled()
+
+    find_item(win, "B 1.0").setCheckState(Qt.CheckState.Unchecked)
+    assert win.apply_selection_btn.isEnabled()
+    win.apply_source_selection()
+    wait_idle(win)  # save + refresh
+    assert config.load(tmp_path / "modsweep.toml").exclude == ["B 1.0"]
+    item = find_item(win, "B 1.0")
+    assert item.checkState() == Qt.CheckState.Unchecked
+    assert item.flags() & Qt.ItemFlag.ItemIsEnabled  # exact exclude: re-tickable
+
+    item.setCheckState(Qt.CheckState.Checked)
+    win.apply_source_selection()
+    wait_idle(win)
+    assert config.load(tmp_path / "modsweep.toml").exclude == []
+    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Checked
+
+
+def test_glob_excluded_source_is_locked(tmp_path):
+    from PySide6.QtCore import Qt
+
+    cfg_path = build_two_list_config(tmp_path)
+    cfg_path.write_text(
+        cfg_path.read_text(encoding="utf-8") + "exclude = ['B*']\n", encoding="utf-8"
+    )
+    app()
+    win = window(cfg_path)
+    wait_idle(win)
+    item = find_item(win, "B 1.0")
+    assert item.checkState() == Qt.CheckState.Unchecked
+    assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert "B*" in item.toolTip()
+
+
+def test_select_none_then_all_roundtrip(tmp_path):
+    from PySide6.QtCore import Qt
+
+    app()
+    win = window(build_two_list_config(tmp_path))
+    wait_idle(win)
+    win._set_all_sources(False)
+    assert all(
+        win.sources_list.item(i).checkState() == Qt.CheckState.Unchecked
+        for i in range(win.sources_list.count())
+    )
+    win._set_all_sources(True)
+    assert all(
+        win.sources_list.item(i).checkState() == Qt.CheckState.Checked
+        for i in range(win.sources_list.count())
+    )
+
+
+def test_action_results_pop_up(tmp_path, monkeypatch):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.show_result_popups = True
+    seen = []
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "information",
+        staticmethod(lambda parent, title, text, *a, **k: seen.append(text)),
+    )
+    win.run_sweep(apply=False)
+    wait_idle(win)
+    assert any("Dry run:" in text for text in seen)
+
+
 def test_config_editor_prefills_and_builds_result(tmp_path):
     app()
     from modsweep import config
@@ -264,6 +365,8 @@ def test_config_editor_prefills_and_builds_result(tmp_path):
 
 
 def test_apply_config_saves_and_refreshes(tmp_path):
+    from PySide6.QtCore import Qt
+
     app()
     from modsweep import config
 
@@ -273,8 +376,12 @@ def test_apply_config_saves_and_refreshes(tmp_path):
     edited.exclude = ["A*"]  # retire the only list
     win.apply_config(edited)
     wait_idle(win)
-    assert win.sources_list.count() == 0
-    assert "excluded (A*)" in win.console.toPlainText()
+    # Excluded sources stay visible (unchecked) so they can be reinstated;
+    # a glob exclude locks the checkbox and points at the editor.
+    item = find_item(win, "A 1.0")
+    assert item.checkState() == Qt.CheckState.Unchecked
+    assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert "0 active source(s) loaded." in win.console.toPlainText()
     assert config.load(tmp_path / "modsweep.toml").exclude == ["A*"]
 
 
