@@ -235,21 +235,21 @@ def _app_icon() -> QIcon:
                         Qt.PenCapStyle.RoundCap))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     for start, control, end in (
-        ((114, 146), (84, 178), (64, 204)),
-        ((127, 148), (104, 184), (94, 214)),
-        ((139, 146), (126, 184), (124, 212)),
+        ((113, 146), (107, 194), (60, 206)),
+        ((126, 148), (131, 194), (90, 216)),
+        ((138, 146), (150, 186), (120, 212)),
     ):
         strand = QPainterPath(QPointF(*start))
         strand.quadTo(QPointF(*control), QPointF(*end))
-        painter.drawPath(strand)  # strands curve with the drag
+        painter.drawPath(strand)  # strands bow with the fan's swoop
     painter.restore()
 
-    # Dust rings on the opposite side of the sweep, under the handle.
+    # Dust rings on the opposite side of the sweep, level with the bristles.
     painter.setPen(QPen(QColor("#9aa0a6"), 7))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawEllipse(QPointF(206, 194), 10, 10)
-    painter.drawEllipse(QPointF(186, 228), 6, 6)
-    painter.drawEllipse(QPointF(228, 226), 7, 7)
+    painter.drawEllipse(QPointF(208, 166), 10, 10)
+    painter.drawEllipse(QPointF(188, 202), 6, 6)
+    painter.drawEllipse(QPointF(228, 202), 7, 7)
     painter.end()
     return QIcon(pixmap)
 
