@@ -32,6 +32,10 @@ installs = [
 # .wabbajack manifest is gone. Weaker than a real manifest.
 recovery = []
 
+# Snapshot JSONs (from `modsweep snapshot`) — durable whitelists that
+# outlive their original .wabbajack / InstallPackage.xml.
+snapshots = []
+
 # Retire lists without touching their .wabbajack files: case-insensitive
 # globs matched against the list label ("LoreRim 2.2.11") or the manifest
 # file name. Everything found and not excluded is considered active.

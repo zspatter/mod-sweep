@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config, mo2, nolvus, sweep as sweep_mod, wabbajack
+from . import config, mo2, nolvus, snapshot as snapshot_mod, sweep as sweep_mod, wabbajack
 from .cache import HashCache
 from .manifest import Manifest
 from .matcher import match
@@ -85,6 +85,15 @@ def main(argv: list[str] | None = None) -> int:
     rst = sub.add_parser("restore", help="Move a quarantined sweep batch back")
     rst.add_argument("batch", type=Path, help="Batch directory created by sweep")
 
+    snp = sub.add_parser(
+        "snapshot", parents=[common],
+        help="Export each active source as a compact JSON whitelist that "
+        "survives deletion of the original manifest",
+    )
+    snp.add_argument(
+        "--out", type=Path, default=Path("snapshots"), help="Output directory"
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "report":
         return _cmd_report(args)
@@ -94,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_sweep(args)
     if args.cmd == "restore":
         return _cmd_restore(args)
+    if args.cmd == "snapshot":
+        return _cmd_snapshot(args)
     return 2
 
 
@@ -120,6 +131,7 @@ def _resolve(args: argparse.Namespace, need_manifests: bool = True) -> Resolved:
         sources += [("nolvus", p) for p in cfg.nolvus]
         sources += _expand_installs(cfg.installs, "mo2")
         sources += _expand_installs(cfg.recovery, "mo2-all")
+        sources += [("snapshot", p) for p in cfg.snapshots]
     if need_manifests and not sources:
         raise SystemExit("error: no manifest sources (-m) given and none in config")
     return Resolved(
@@ -258,11 +270,25 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_snapshot(args: argparse.Namespace) -> int:
+    res = _resolve(args)
+    manifests = load_manifests(res.sources, res.exclude)
+    if not manifests:
+        print("No manifests found.", file=sys.stderr)
+        return 1
+    for manifest in manifests:
+        path = snapshot_mod.save(manifest, args.out)
+        print(f"  {manifest.label}  ({len(manifest.entries)} entries) -> {path}")
+    print(f"\n{len(manifests)} snapshot(s) written to {args.out}")
+    return 0
+
+
 _LOADERS = {
     "wabbajack": wabbajack.load,
     "nolvus": nolvus.load,
     "mo2": mo2.load,
     "mo2-all": lambda p: mo2.load(p, include_all=True),
+    "snapshot": snapshot_mod.load,
 }
 
 
@@ -337,8 +363,11 @@ def _expand_cli(paths: list[Path]) -> list[tuple[str, Path]]:
     for path in paths:
         if not path.is_dir():
             suffix = path.suffix.lower()
-            if suffix in (".wabbajack", ".json"):
+            if suffix == ".wabbajack":
                 out.append(("wabbajack", path))
+            elif suffix == ".json":
+                kind = "snapshot" if snapshot_mod.is_snapshot(path) else "wabbajack"
+                out.append((kind, path))
             elif suffix == ".xml":
                 out.append(("nolvus", path))
             else:

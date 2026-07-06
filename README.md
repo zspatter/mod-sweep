@@ -48,6 +48,7 @@ uv run modsweep hash                                 # full hash pass (optional;
 uv run modsweep sweep                                # dry run: what would be quarantined
 uv run modsweep sweep --apply                        # move candidates to quarantine
 uv run modsweep restore <quarantine\batch-dir>       # undo a sweep batch
+uv run modsweep snapshot                             # export durable whitelists
 ```
 
 The hash cache lives in `.modsweep/hashes.sqlite`, keyed by path and
@@ -116,9 +117,12 @@ remove any file whose hash was never checked against the whitelist.
   paths to xxHash64 but knows nothing about list membership — a cache, not a
   manifest.
 
+`modsweep snapshot` exports each active source as a compact JSON whitelist
+(name/size/hash per entry). Snapshots load like any other source (the
+`snapshots` config key, or `-m file.json`), so a list stays retirable and
+reinstatable even after its original .wabbajack is deleted.
+
 ## Roadmap
 
-- `modsweep snapshot`: export a compact name/size/hash manifest per parsed
-  source, so the whitelist survives deletion of the original .wabbajack.
 - Quarantine aging: purge batches after a trust period.
 - GUI for picking manifests and watching progress (nice-to-have).

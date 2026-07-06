@@ -10,3 +10,4 @@ build/
 # modsweep local state
 .modsweep/
 reports/
+snapshots/

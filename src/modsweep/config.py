@@ -26,12 +26,15 @@ class Config:
     nolvus: list[Path] = field(default_factory=list)  # InstallPackage.xml files
     installs: list[Path] = field(default_factory=list)  # MO2 installs -> [NoDelete]
     recovery: list[Path] = field(default_factory=list)  # installs whitelisted whole
+    snapshots: list[Path] = field(default_factory=list)  # exported snapshot JSONs
     exclude: list[str] = field(default_factory=list)  # globs vs label or file name
     quarantine: Path | None = None
 
     @property
     def has_sources(self) -> bool:
-        return bool(self.wabbajack or self.nolvus or self.installs or self.recovery)
+        return bool(
+            self.wabbajack or self.nolvus or self.installs or self.recovery or self.snapshots
+        )
 
 
 def load(path: Path | None) -> Config:
@@ -61,6 +64,7 @@ def load(path: Path | None) -> Config:
         nolvus=resolve_list("nolvus"),
         installs=resolve_list("installs"),
         recovery=resolve_list("recovery"),
+        snapshots=resolve_list("snapshots"),
         exclude=[str(v) for v in data.get("exclude", [])],
         quarantine=resolve(quarantine) if quarantine else None,
     )
