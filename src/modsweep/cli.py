@@ -307,6 +307,15 @@ def load_manifests(
     exclude: list[str] | None = None,
     latest_only: bool = False,
 ) -> list[Manifest]:
+    """Resolve sources to active manifests (see README "Source resolution").
+
+    Precedence: exclude > pin (explicit entry) > latest_only > active by
+    default. Exclusion is checked against file name before parsing and label
+    after; label dedupe keeps the first copy but a pin from any copy sticks;
+    empty MO2 sources drop; the version filter never drops pinned manifests
+    though they still compete as versions. Every drop or pin-save is
+    announced on stderr — no silent decisions.
+    """
     exclude = exclude or []
     manifests: dict[str, Manifest] = {}
     pinned: set[str] = set()

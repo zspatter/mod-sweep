@@ -54,6 +54,53 @@ uv run modsweep snapshot                             # export durable whitelists
 The hash cache lives in `.modsweep/hashes.sqlite`, keyed by path and
 invalidated when size or mtime changes.
 
+## Source resolution
+
+Every command resolves its active sources through the same pipeline. The
+precedence is: **exclude > pin (explicit entry) > latest_only > active by
+default** — and every decision is announced on stderr, never silent.
+
+1. **Discovery.** Config keys (or CLI `-m`) expand to concrete manifests.
+   Directory entries are walked: a `wabbajack` dir is searched recursively
+   for `.wabbajack`; an `installs` entry is either an MO2 install or a
+   folder whose direct children are installs. Provenance is recorded here —
+   a file or install you named yourself is *explicit* (pinned); anything
+   found by a directory walk is *implicit*. Nolvus manifests and snapshots
+   are always named directly, so they are always pinned.
+2. **Exclusion.** `exclude` globs (config plus `--exclude`, additive) match
+   case-insensitively against the manifest file name (before parsing) and
+   the list label (after parsing). An excluded manifest takes no further
+   part — exclusion beats pinning. Announced as `excluded (<pattern>)`.
+3. **Dedupe.** Identical labels — the same list version found in several
+   places, e.g. two Wabbajack install dirs — collapse to one manifest.
+   A pin from *any* copy sticks.
+4. **Empty installs.** Installs with no `[NoDelete]` entries contribute
+   nothing and are dropped from evaluation.
+5. **Version filter** (only when `latest_only`). Manifests group by list
+   name; the highest version per group survives (numeric-aware compare,
+   suffixes tolerated, empty version lowest). Pinned manifests are never
+   dropped, but they still *compete* as versions, so pinning the newest
+   does not resurrect older ones. Versionless sources ([NoDelete]
+   instances) are single-member groups and always survive. Announced as
+   `superseded by <winner>` and `pinned (explicit entry) despite <winner>`.
+
+Whatever survives is active, and every file an active source names is
+protected. The failure mode is deliberately asymmetric: forgetting a list
+keeps its files; only explicit action (exclusion, or an old version losing
+under `latest_only`) exposes files for sweeping.
+
+Example — "latest of everything, except keep old LoreRim too, and retire
+NGVO entirely":
+
+```toml
+latest_only = true
+exclude = ['NGVO*']
+wabbajack = [
+    'C:\Games\modding_tools\Wabbajack',                # implicit: latest wins
+    'C:\...\LoreRim_@@_LoreRim.wabbajack',             # explicit: pinned
+]
+```
+
 ## Retiring a list
 
 Every manifest found under the configured sources is **active by default** —
@@ -62,13 +109,8 @@ them. The report header names each active source (label + version + origin
 path); that list is the thing to review. To retire one:
 
 - set `latest_only = true` (or pass `--latest-only`) to keep just the newest
-  version of every list, grouped by list name — superseded manifests are
-  announced. Explicit file entries override the filter: naming a specific
-  `.wabbajack` (even redundantly alongside its directory) pins that version
-  as intentional, so "latest by default, plus these specific versions" is
-  one directory line plus one line per pin. Pinned files still compete as
-  versions — pinning the newest does not resurrect older ones. Excluding
-  the newest version also pins an older one; or
+  version of every list, pinning specific versions by naming their files
+  explicitly (see Source resolution above); or
 - add an `exclude` glob in `modsweep.toml` (or ad-hoc via `--exclude`),
   matched case-insensitively against the list label (`'LoreRim 2.2*'`) or
   the manifest file name — the .wabbajack stays on disk for reinstatement; or
