@@ -59,3 +59,19 @@ def test_no_cache_dir_means_no_caching(tmp_path):
     (loaded,) = load_manifests(sources)  # parse_cache omitted: plain parse
     assert loaded.label == "A 1.0"
     assert not (tmp_path / "manifest_cache").exists()
+
+
+def test_unpicklable_entry_means_fresh_parse(tmp_path, monkeypatch):
+    """Unpickling after a refactor raises AttributeError/ImportError, not
+    PickleError - any such failure must read as a cache miss, not a crash."""
+    import pickle
+
+    wj = make_wabbajack(tmp_path / "a.wabbajack", "A", "1.0", [])
+    cache_dir = tmp_path / "manifest_cache"
+    manifest_cache.store(cache_dir, wj, "wabbajack", load_wj(wj))
+
+    def explode(fh):
+        raise AttributeError("type 'Entry' has moved in a refactor")
+
+    monkeypatch.setattr(pickle, "load", explode)
+    assert manifest_cache.load(cache_dir, wj, "wabbajack") is None

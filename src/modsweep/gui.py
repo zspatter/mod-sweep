@@ -897,7 +897,8 @@ class MainWindow(QMainWindow):
 
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
-            files = [f for f in scan(downloads) if not f.is_meta]
+            all_files = scan(downloads)
+            files = [f for f in all_files if not f.is_meta]
             cache = HashCache(self._cache_path())
             try:
                 results = match(files, manifests, cache)
@@ -913,13 +914,18 @@ class MainWindow(QMainWindow):
                     xxh64_b64, crc32 = hash_file(disk.path)
                     cache.put(disk, xxh64_b64, crc32)
                     worker.progress.emit(i, len(pending))
+                # One scan serves both phases: re-match with the fresh
+                # hashes (sidecars included) and deliver the report here
+                # instead of chaining a second scan-and-match worker.
+                results = match(all_files, manifests, cache)
             finally:
                 cache.close()
+            worker.payload.emit(("report", (manifests, results)))
             worker.summary.emit(
                 f"Hashing done - {len(pending):,} candidate file(s) hashed."
             )
 
-        self._start(action, "Hashing candidates", then_report=True)
+        self._start(action, "Hashing candidates")
 
     def run_sweep(self, apply: bool) -> None:
         downloads = self._require_downloads()

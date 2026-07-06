@@ -32,8 +32,11 @@ def load(cache_dir: Path, source: Path, kind: str) -> Manifest | None:
         ):
             log.debug("manifest cache hit: %s", source)
             return cached["manifest"]
-    except (OSError, pickle.PickleError, KeyError, EOFError):
-        pass  # best-effort cache: any trouble means a fresh parse
+    except Exception:
+        # Best-effort cache: any trouble means a fresh parse. Unpickling
+        # after a refactor can raise AttributeError/ImportError/TypeError,
+        # not just PickleError, so the catch is deliberately broad.
+        pass
     return None
 
 

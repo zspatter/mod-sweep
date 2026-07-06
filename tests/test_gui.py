@@ -76,8 +76,7 @@ def swept_window(tmp_path):
     """Window whose junk.7z is already hashed and quarantined."""
     win = window(build_config(tmp_path))
     wait_idle(win)
-    win.run_hash_candidates()  # chains an automatic report
-    wait_idle(win)
+    win.run_hash_candidates()  # hashes and reports in one pass
     wait_idle(win)
     win.run_sweep(apply=False)  # dry run first, like a careful user
     wait_idle(win)
@@ -195,8 +194,7 @@ def test_quarantine_single_file_moves_it_and_its_meta_only(tmp_path):
     (dl / "junk.7z.meta").write_text("[General]\n", encoding="utf-8")
     wait_idle(win)
     win.run_hash_candidates()
-    wait_idle(win)
-    wait_idle(win)  # chained report stores _last_results
+    wait_idle(win)  # the same pass reports, storing _last_results
 
     win.quarantine_file("junk.7z")
     wait_idle(win)
@@ -215,7 +213,6 @@ def test_delete_single_file_confirms_then_purges(tmp_path, monkeypatch):
     win = window(build_config(tmp_path))
     wait_idle(win)
     win.run_hash_candidates()
-    wait_idle(win)
     wait_idle(win)
 
     monkeypatch.setattr(
@@ -660,8 +657,7 @@ def test_sweep_apply_updates_report_tab(tmp_path):
     win = window(build_config(tmp_path))
     wait_idle(win)
     win.run_hash_candidates()
-    wait_idle(win)
-    wait_idle(win)  # chained report fills tables
+    wait_idle(win)  # the same pass fills the report tables
     assert win.candidates_table.rowCount() == 1
     win.tabs.setCurrentIndex(1)  # user wanders off to the Log
 

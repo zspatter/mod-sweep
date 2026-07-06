@@ -36,3 +36,20 @@ def test_empty_file(tmp_path):
     xxh64_b64, crc32 = hash_file(p)
     assert crc32 == 0
     assert xxh64_b64  # xxh64 of empty input is still a valid digest
+
+
+def test_read_ahead_survives_many_tiny_chunks(tmp_path, monkeypatch):
+    """Stress the one-read-in-flight handoff: hundreds of chunk boundaries
+    must produce identical digests to a single-shot hash."""
+    import modsweep.hashutil as hashutil
+
+    monkeypatch.setattr(hashutil, "CHUNK", 7)
+    data = bytes(range(256)) * 5
+    p = tmp_path / "many.bin"
+    p.write_bytes(data)
+    xxh64_b64, crc32 = hashutil.hash_file(p)
+    assert crc32 == zlib.crc32(data)
+    expected = base64.b64encode(
+        xxhash.xxh64(data).intdigest().to_bytes(8, "little")
+    ).decode("ascii")
+    assert xxh64_b64 == expected

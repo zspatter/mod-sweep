@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 META_SUFFIX = ".meta"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DiskFile:
     path: Path
     rel: str  # relative to the downloads root; '/'-separated on all platforms

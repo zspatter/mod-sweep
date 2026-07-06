@@ -12,7 +12,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, cast
 
 from .manifest import Entry, Manifest
 from .scanner import DiskFile
@@ -35,7 +35,7 @@ META_ORPHAN = "meta-orphan"  # .meta sidecar whose archive is gone
 _STATUS_ORDER = [KEEP_VERIFIED, KEEP, STALE, UNCLAIMED, META_ORPHAN]
 
 
-@dataclass
+@dataclass(slots=True)
 class FileResult:
     disk: DiskFile
     status: str
@@ -89,6 +89,12 @@ def match(
 ) -> list[FileResult]:
     start = time.perf_counter()
     index = _Index(manifests)
+    # Bulk-read the whole cache when the lookup offers it: one SELECT
+    # instead of one per file (the point-in-time view is fine - nothing
+    # hashes while a match runs).
+    bulk = getattr(cache, "snapshot", None)
+    if callable(bulk):
+        cache = cast("HashLookup", bulk())
     results: dict[str, FileResult] = {}  # keyed by exact rel - case matters on POSIX
     lower_rel: dict[str, str] = {}  # case-insensitive lookup for sidecar binding
     metas: list[DiskFile] = []
