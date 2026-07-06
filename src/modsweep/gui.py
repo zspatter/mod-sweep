@@ -17,13 +17,13 @@ import io
 import logging
 import subprocess
 import sys
-import threading
 from contextlib import redirect_stderr
 from datetime import datetime
 from pathlib import Path
 
 try:
-    from PySide6.QtCore import QSettings, Qt, QThread, Signal
+    from PySide6.QtCore import QObject, QPointF, QSettings, Qt, QThread, Signal
+    from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF
     from PySide6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
@@ -66,6 +66,7 @@ from .cache import HashCache
 from .cli import (
     DEFAULT_CACHE,
     SourceInfo,
+    _infer_file_kind,
     _quarantine_dir_for,
     config_sources,
     exact_exclude_pattern,
@@ -148,35 +149,79 @@ def _gb(size: float) -> str:
     return f"{size / (1 << 30):,.2f} GB"
 
 
-class GuiLogHandler(logging.Handler):
-    """Collects log records thread-safely; the UI drains them between actions."""
+class LogBridge(QObject):
+    """Marshals text from worker threads onto the UI thread via a signal."""
 
-    def __init__(self):
+    message = Signal(str)
+
+
+class GuiLogHandler(logging.Handler):
+    """Streams log records into the Log tab live via the bridge signal
+    (queued across threads by Qt)."""
+
+    def __init__(self, bridge: LogBridge):
         super().__init__()
         self.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-        self._records: list[str] = []
-        self._records_lock = threading.Lock()
+        self._bridge = bridge
 
     def emit(self, record: logging.LogRecord) -> None:
-        with self._records_lock:
-            self._records.append(self.format(record))
+        self._bridge.message.emit(self.format(record))
 
-    def drain(self) -> list[str]:
-        with self._records_lock:
-            drained = self._records[:]
-            self._records.clear()
-        return drained
+
+class _LineStream(io.TextIOBase):
+    """File-like object forwarding complete lines to a callback as written -
+    announcements printed to stderr stream into the Log in real time."""
+
+    def __init__(self, callback):
+        super().__init__()
+        self._callback = callback
+        self._pending = ""
+
+    def write(self, text: str) -> int:
+        self._pending += text
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
+            if line.strip():
+                self._callback(line)
+        return len(text)
+
+    def flush_pending(self) -> None:
+        if self._pending.strip():
+            self._callback(self._pending)
+        self._pending = ""
 
 
 def _app_icon() -> QIcon:
-    """A broom, rendered from the emoji font - good enough until a real .ico."""
-    pixmap = QPixmap(64, 64)
+    """A painted broom: deterministic on every platform, unlike emoji fonts.
+
+    Icons are not themed, so fixed colors are fine here (the one place the
+    no-hardcoded-colors rule does not apply).
+    """
+    pixmap = QPixmap(256, 256)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    font = QFont()
-    font.setPointSize(40)
-    painter.setFont(font)
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "\U0001f9f9")
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    # handle, upper right to center
+    painter.setPen(QPen(QColor("#8a5a2b"), 24, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap))
+    painter.drawLine(214, 28, 128, 124)
+    # ferrule binding the bristles to the handle
+    painter.setPen(QPen(QColor("#c9a227"), 34, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap))
+    painter.drawLine(128, 124, 112, 142)
+    # bristle head fanning to the lower left
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(QColor("#d9b45b")))
+    painter.drawPolygon(QPolygonF([
+        QPointF(126, 128), QPointF(168, 170),
+        QPointF(96, 232), QPointF(26, 158),
+    ]))
+    # bristle strands
+    painter.setPen(QPen(QColor("#a87f31"), 7))
+    for start, end in (
+        ((116, 142), (58, 178)), ((128, 154), (74, 198)), ((140, 166), (92, 214)),
+    ):
+        painter.drawLine(*start, *end)
     painter.end()
     return QIcon(pixmap)
 
@@ -418,15 +463,14 @@ class Worker(QThread):
         self._fn = fn
 
     def run(self) -> None:  # pragma: no cover - thread body, covered via smoke
-        buffer = io.StringIO()
+        stream = _LineStream(self.line.emit)
         try:
-            with redirect_stderr(buffer):
+            with redirect_stderr(stream):
                 self._fn(self)
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:
-            for announced in buffer.getvalue().splitlines():
-                self.line.emit(announced)
+            stream.flush_pending()
 
 
 class MainWindow(QMainWindow):
@@ -446,7 +490,10 @@ class MainWindow(QMainWindow):
             "for you); tick an excluded one to reinstate it.\n\n" + RESOLUTION_HELP
         )
         self.sources_list.itemChanged.connect(self._on_source_toggled)
+        self.sources_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sources_list.customContextMenuRequested.connect(self._sources_menu)
         self._suppress_source_signal = False
+        self._last_infos: dict[str, SourceInfo] = {}
 
         self._build_buttons()
         self._build_tabs()
@@ -501,7 +548,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
 
         self.log("Tip: hover any button for guidance; action output lands here.")
-        self._log_handler = GuiLogHandler()
+        self._log_bridge = LogBridge()
+        self._log_bridge.message.connect(self.log)
+        self._log_handler = GuiLogHandler(self._log_bridge)
         pipeline_logger = logging.getLogger("modsweep")
         pipeline_logger.addHandler(self._log_handler)
         if pipeline_logger.level in (logging.NOTSET, logging.WARNING):
@@ -835,7 +884,10 @@ class MainWindow(QMainWindow):
         menu.exec(self.candidates_table.viewport().mapToGlobal(pos))
 
     def _reveal(self, rel: str) -> None:  # pragma: no cover - launches OS shell
-        path = Path(self.cfg.downloads) / rel
+        self._reveal_path(Path(self.cfg.downloads) / rel)
+
+    @staticmethod
+    def _reveal_path(path: Path) -> None:  # pragma: no cover - launches OS shell
         if sys.platform == "win32":
             subprocess.Popen(["explorer", "/select,", str(path)])
         elif sys.platform == "darwin":
@@ -976,6 +1028,7 @@ class MainWindow(QMainWindow):
             self._show_report(manifests, results)
 
     def _show_sources(self, infos: list[SourceInfo]) -> None:
+        self._last_infos = {i.manifest.label: i for i in infos}
         self._suppress_source_signal = True
         self.sources_list.clear()
         for info in infos:
@@ -1034,6 +1087,66 @@ class MainWindow(QMainWindow):
             item = self.sources_list.item(i)
             if item.flags() & Qt.ItemFlag.ItemIsEnabled:
                 item.setCheckState(target)
+
+    def _sources_menu(self, pos) -> None:  # pragma: no cover - native menu
+        item = self.sources_list.itemAt(pos)
+        if item is None:
+            return
+        label, source_state, detail = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        if source_state == "superseded":
+            menu.addAction(
+                "Pin this version (survives latest_only)",
+                lambda: self.pin_source(label),
+            )
+        if source_state in ("active", "pinned"):
+            menu.addAction(
+                "Retire this list (exclude)", lambda: self.retire_source(label)
+            )
+        if source_state == "excluded" and is_exact_exclude(detail, label):
+            menu.addAction("Reinstate", lambda: self.reinstate_source(label))
+        menu.addSeparator()
+        menu.addAction(
+            "Open manifest location",
+            lambda: self._reveal_path(self._last_infos[label].manifest.source_path),
+        )
+        menu.exec(self.sources_list.viewport().mapToGlobal(pos))
+
+    _PIN_KEYS = {"wabbajack": "wabbajack", "nolvus": "nolvus", "snapshot": "snapshots"}
+
+    def pin_source(self, label: str) -> None:
+        """Add the source's manifest file as an explicit (pinned) config entry."""
+        info = self._last_infos.get(label)
+        if info is None:
+            self._on_status(f"error: {label} is not in the current source list")
+            return
+        path = info.manifest.source_path
+        kind = _infer_file_kind(path)
+        key = self._PIN_KEYS.get(kind or "")
+        if key is None:
+            self._on_status(f"error: cannot pin {label}: {path.name} is not a "
+                            f"pinnable manifest file")
+            return
+        values = getattr(self.cfg, key)
+        if path in values:
+            self._on_status(f"{label} is already pinned.")
+            return
+        self.apply_config(replace(self.cfg, **{key: values + [path]}))
+
+    def retire_source(self, label: str) -> None:
+        if any(is_exact_exclude(e, label) for e in self.cfg.exclude):
+            return
+        self.apply_config(
+            replace(self.cfg, exclude=self.cfg.exclude + [exact_exclude_pattern(label)])
+        )
+
+    def reinstate_source(self, label: str) -> None:
+        self.apply_config(
+            replace(
+                self.cfg,
+                exclude=[e for e in self.cfg.exclude if not is_exact_exclude(e, label)],
+            )
+        )
 
     def apply_source_selection(self) -> None:
         """Translate the checkboxes into exact-label excludes and reload."""
@@ -1134,8 +1247,6 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _on_finished(self, then_report: bool) -> None:
-        for record in self._log_handler.drain():
-            self.log(record)
         self._set_busy(False, "")
         if then_report:
             self.run_report()

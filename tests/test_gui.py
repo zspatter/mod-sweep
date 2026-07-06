@@ -378,6 +378,68 @@ def test_purge_confirmation_flags_young_batches(tmp_path, monkeypatch):
     assert "purges whatever you pick" in prompts[0]
 
 
+def latest_only_folder_config(tmp_path):
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    make_wabbajack(tmp_path / "old.wabbajack", "X", "1.0", [])
+    make_wabbajack(tmp_path / "new.wabbajack", "X", "2.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"latest_only = true\nwabbajack = ['{tmp_path}']\n",
+        encoding="utf-8",
+    )
+    return cfg
+
+
+def test_pin_source_adds_explicit_entry_and_unlocks(tmp_path):
+    from PySide6.QtCore import Qt
+
+    from modsweep import config
+
+    app()
+    win = window(latest_only_folder_config(tmp_path))
+    wait_idle(win)
+    assert "locked by latest_only" in find_item(win, "X 1.0").text()
+
+    win.pin_source("X 1.0")
+    wait_idle(win)  # save + refresh
+    assert tmp_path / "old.wabbajack" in config.load(tmp_path / "modsweep.toml").wabbajack
+    item = find_item(win, "X 1.0")
+    assert item.checkState() == Qt.CheckState.Checked
+    assert "Pinned" in item.toolTip()
+
+    win.pin_source("X 1.0")  # idempotent
+    assert "already pinned" in win.console.toPlainText()
+
+
+def test_retire_and_reinstate_via_context_actions(tmp_path):
+    from PySide6.QtCore import Qt
+
+    from modsweep import config
+
+    app()
+    win = window(build_two_list_config(tmp_path))
+    wait_idle(win)
+    win.retire_source("B 1.0")
+    wait_idle(win)
+    assert config.load(tmp_path / "modsweep.toml").exclude == ["B 1.0"]
+    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Unchecked
+
+    win.reinstate_source("B 1.0")
+    wait_idle(win)
+    assert config.load(tmp_path / "modsweep.toml").exclude == []
+    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Checked
+
+
+def test_pin_source_rejects_unpinnable_kinds(tmp_path):
+    app()
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.pin_source("nonsense")
+    assert "not in the current source list" in win.console.toPlainText()
+
+
 def test_action_results_pop_up(tmp_path, monkeypatch):
     app()
     win = window(build_config(tmp_path))

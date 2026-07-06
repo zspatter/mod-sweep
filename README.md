@@ -240,7 +240,9 @@ Untick lists to retire them (All/None for bulk) and Apply Selection writes
 exact-label excludes to the config for you; ticking an excluded list
 reinstates it. Locked entries say why inline — italic with a
 "locked by latest_only" / "excluded by '<glob>'" suffix — and their
-tooltips explain the way out (pin the file explicitly, or edit the glob).
+tooltips explain the way out. Right-clicking a source offers the same moves
+directly: pin a superseded version (writes the explicit config entry for
+you), retire or reinstate a list, and open the manifest's location.
 A Snapshot... button exports the active sources' durable whitelists to a
 chosen folder. Action results pop up as dialogs in addition to the status
 bar and Log, so outcomes are unmissable. Edit Config...
@@ -264,8 +266,8 @@ State-changing actions re-run the report automatically. Candidate rows
 explain their status on hover and carry a context menu: open in the file
 manager, quarantine just that file, or delete it (confirmation, no undo) —
 single-file batches reuse the normal batch machinery, so they remain
-restorable and purgeable like any sweep. Pipeline timings stream into the
-Log tab. No custom palette or stylesheet is set anywhere, so the interface
+restorable and purgeable like any sweep. Announcements and pipeline timings
+stream into the Log tab live as actions run. No custom palette or stylesheet is set anywhere, so the interface
 follows the system light/dark theme natively.
 
 ## Testing
@@ -280,21 +282,18 @@ on Windows/Linux/macOS × Python 3.12/3.14.
 
 ## Roadmap
 
-- GUI growth: one-click pinning of superseded versions (adding the
-  explicit file entry the tooltip describes); streaming announcements
-  instead of end-of-action replay; a real .ico to replace the
-  emoji-rendered broom.
 - Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
   install modsweep` delivers both CLI and GUI without cloning; then a
   release workflow building standalone executables per platform (the
   cross-platform requirement carries over: the CI matrix pattern applies,
   producing Windows/Linux/macOS artifacts — PyInstaller emits a windowed
-  `modsweep-gui` + console `modsweep` pair from one spec, per OS).
-- Performance: cache parsed manifests keyed by (path, size, mtime) so the
-  large modlist JSONs are not re-parsed on every action — the actual cost
-  behind source refreshing. Parallel hashing deliberately skipped: hashing
-  is drive-bound (~1.3 GB/s observed), threads would only help on fast NVMe
-  and would actively hurt on HDDs.
+  `modsweep-gui` + console `modsweep` pair from one spec, per OS, and
+  needs an .ico exported from the painted icon).
+- Performance note (settled): parsed manifests are cached under
+  `.modsweep/manifest_cache` keyed by source size/mtime (12.5s → 0.9s
+  resolution on the reference setup). Parallel hashing deliberately
+  skipped: hashing is drive-bound (~1.3 GB/s observed), threads would only
+  help on fast NVMe and would actively hurt on HDDs.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.
 - Manifest distribution: this repo *owns* the bundled Nolvus manifests, so
