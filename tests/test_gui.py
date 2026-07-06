@@ -74,8 +74,8 @@ def test_window_lists_sources_via_worker(tmp_path):
     app()
     win = window(build_config(tmp_path))
     wait_idle(win)  # refresh runs threaded
-    assert win.sources_list.count() == 1
-    assert "A 1.0" in win.sources_list.item(0).text()
+    assert win.sources_list.topLevelItemCount() == 1
+    assert "A 1.0" in win.sources_list.topLevelItem(0).text(0)
     assert "1 active source(s) loaded." in win.console.toPlainText()
 
 
@@ -244,12 +244,19 @@ def build_two_list_config(tmp_path):
     return cfg
 
 
+def all_source_items(win):
+    for i in range(win.sources_list.topLevelItemCount()):
+        top = win.sources_list.topLevelItem(i)
+        yield top
+        for j in range(top.childCount()):
+            yield top.child(j)
+
+
 def find_item(win, label):
     from PySide6.QtCore import Qt
 
-    for i in range(win.sources_list.count()):
-        item = win.sources_list.item(i)
-        if item.data(Qt.ItemDataRole.UserRole)[0] == label:
+    for item in all_source_items(win):
+        if item.data(0, Qt.ItemDataRole.UserRole)[0] == label:
             return item
     raise AssertionError(f"{label} not in sources list")
 
@@ -264,20 +271,20 @@ def test_untick_and_apply_retires_then_reinstates(tmp_path):
     wait_idle(win)
     assert not win.apply_selection_btn.isEnabled()
 
-    find_item(win, "B 1.0").setCheckState(Qt.CheckState.Unchecked)
+    find_item(win, "B 1.0").setCheckState(0, Qt.CheckState.Unchecked)
     assert win.apply_selection_btn.isEnabled()
     win.apply_source_selection()
     wait_idle(win)  # save + refresh
     assert config.load(tmp_path / "modsweep.toml").exclude == ["B 1.0"]
     item = find_item(win, "B 1.0")
-    assert item.checkState() == Qt.CheckState.Unchecked
+    assert item.checkState(0) == Qt.CheckState.Unchecked
     assert item.flags() & Qt.ItemFlag.ItemIsEnabled  # exact exclude: re-tickable
 
-    item.setCheckState(Qt.CheckState.Checked)
+    item.setCheckState(0, Qt.CheckState.Checked)
     win.apply_source_selection()
     wait_idle(win)
     assert config.load(tmp_path / "modsweep.toml").exclude == []
-    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Checked
+    assert find_item(win, "B 1.0").checkState(0) == Qt.CheckState.Checked
 
 
 def test_glob_excluded_source_is_locked(tmp_path):
@@ -291,9 +298,9 @@ def test_glob_excluded_source_is_locked(tmp_path):
     win = window(cfg_path)
     wait_idle(win)
     item = find_item(win, "B 1.0")
-    assert item.checkState() == Qt.CheckState.Unchecked
+    assert item.checkState(0) == Qt.CheckState.Unchecked
     assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
-    assert "B*" in item.toolTip()
+    assert "B*" in item.toolTip(0)
 
 
 def test_select_none_then_all_roundtrip(tmp_path):
@@ -304,13 +311,13 @@ def test_select_none_then_all_roundtrip(tmp_path):
     wait_idle(win)
     win._set_all_sources(False)
     assert all(
-        win.sources_list.item(i).checkState() == Qt.CheckState.Unchecked
-        for i in range(win.sources_list.count())
+        item.checkState(0) == Qt.CheckState.Unchecked
+        for item in all_source_items(win)
     )
     win._set_all_sources(True)
     assert all(
-        win.sources_list.item(i).checkState() == Qt.CheckState.Checked
-        for i in range(win.sources_list.count())
+        item.checkState(0) == Qt.CheckState.Checked
+        for item in all_source_items(win)
     )
 
 
@@ -331,19 +338,19 @@ def test_latest_only_locks_superseded_with_visible_hint(tmp_path):
     app()
     win = window(cfg)
     wait_idle(win)
-    # Superseded versions hide by default: a growing manifest bundle must
-    # not drown the list. The toggle carries the hidden count.
-    assert win.show_superseded.text() == "Show superseded (1)"
-    with pytest.raises(AssertionError):
-        find_item(win, "X 1.0")
-    win.show_superseded.setChecked(True)
+    # Versions group under their newest: routine list updates nest as
+    # collapsed children instead of flooding the list.
+    parent = find_item(win, "X 2.0")
+    assert "[+1 older]" in parent.text(0)
+    assert parent.checkState(0) == Qt.CheckState.Checked
+    assert not parent.isExpanded()  # all children superseded: stay folded
     item = find_item(win, "X 1.0")
-    assert "locked by latest_only" in item.text()  # visible without hovering
-    assert item.font().italic()
+    assert item.parent() is parent
+    assert "locked by latest_only" in item.text(0)  # visible when expanded
+    assert item.font(0).italic()
     assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
-    assert not item.icon().isNull()  # lock icon
-    assert "pin" in item.toolTip().lower()  # the hover hint explains the way out
-    assert find_item(win, "X 2.0").checkState() == Qt.CheckState.Checked
+    assert not item.icon(0).isNull()  # lock icon
+    assert "pin" in item.toolTip(0).lower()  # the hover hint explains the way out
 
 
 def test_snapshot_from_gui(tmp_path):
@@ -407,25 +414,26 @@ def test_pin_source_adds_explicit_entry_and_unlocks(tmp_path):
     app()
     win = window(latest_only_folder_config(tmp_path))
     wait_idle(win)
-    win.show_superseded.setChecked(True)
-    assert "locked by latest_only" in find_item(win, "X 1.0").text()
+    assert "locked by latest_only" in find_item(win, "X 1.0").text(0)
 
-    win.pin_source("X 1.0")  # works even while the item is hidden
+    win.pin_source("X 1.0")  # works even while the group is collapsed
     wait_idle(win)  # save + refresh
     assert tmp_path / "old.wabbajack" in config.load(tmp_path / "modsweep.toml").wabbajack
     item = find_item(win, "X 1.0")
-    assert item.checkState() == Qt.CheckState.Checked
-    assert not item.icon().isNull()  # pin icon: visible without hovering
-    assert "Pinned" in item.toolTip()
+    assert item.checkState(0) == Qt.CheckState.Checked
+    assert not item.icon(0).isNull()  # pin icon: visible without hovering
+    assert "Pinned" in item.toolTip(0)
+    assert item.parent().isExpanded()  # a pinned child auto-expands its group
 
     win.pin_source("X 1.0")  # idempotent
     assert "already pinned" in win.console.toPlainText()
 
-    win.unpin_source("X 1.0")  # back to superseded (and hidden by default)
+    win.unpin_source("X 1.0")  # back to superseded (and folded away)
     wait_idle(win)
     assert tmp_path / "old.wabbajack" not in config.load(tmp_path / "modsweep.toml").wabbajack
-    win.show_superseded.setChecked(True)
-    assert "locked by latest_only" in find_item(win, "X 1.0").text()
+    item = find_item(win, "X 1.0")
+    assert "locked by latest_only" in item.text(0)
+    assert not item.parent().isExpanded()
 
 
 def test_retire_and_reinstate_via_context_actions(tmp_path):
@@ -440,13 +448,13 @@ def test_retire_and_reinstate_via_context_actions(tmp_path):
     wait_idle(win)
     assert config.load(tmp_path / "modsweep.toml").exclude == ["B 1.0"]
     retired = find_item(win, "B 1.0")
-    assert retired.checkState() == Qt.CheckState.Unchecked
-    assert not retired.icon().isNull()  # ban icon marks the exclusion
+    assert retired.checkState(0) == Qt.CheckState.Unchecked
+    assert not retired.icon(0).isNull()  # ban icon marks the exclusion
 
     win.reinstate_source("B 1.0")
     wait_idle(win)
     assert config.load(tmp_path / "modsweep.toml").exclude == []
-    assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Checked
+    assert find_item(win, "B 1.0").checkState(0) == Qt.CheckState.Checked
 
 
 def test_pin_active_source_shows_pinned_state(tmp_path):
@@ -468,22 +476,22 @@ def test_pin_active_source_shows_pinned_state(tmp_path):
     )
     win = window(cfg)
     wait_idle(win)
-    assert "untick to retire" in find_item(win, "A 1.0").toolTip()
+    assert "untick to retire" in find_item(win, "A 1.0").toolTip(0)
 
     win.pin_source("A 1.0")  # pin for future use, ahead of any filter
     wait_idle(win)
     assert lists / "a.wabbajack" in config.load(cfg).wabbajack
     item = find_item(win, "A 1.0")
-    assert item.checkState() == Qt.CheckState.Checked
-    assert not item.icon().isNull()  # pin icon marks it without hovering
-    assert "never dropped by latest_only" in item.toolTip()
+    assert item.checkState(0) == Qt.CheckState.Checked
+    assert not item.icon(0).isNull()  # pin icon marks it without hovering
+    assert "never dropped by latest_only" in item.toolTip(0)
 
     win.unpin_source("A 1.0")  # roundtrip: explicit entry removed
     wait_idle(win)
     assert lists / "a.wabbajack" not in config.load(cfg).wabbajack
     item = find_item(win, "A 1.0")
-    assert item.icon().isNull()  # plain active again
-    assert "untick to retire" in item.toolTip()
+    assert item.icon(0).isNull()  # plain active again
+    assert "untick to retire" in item.toolTip(0)
 
     win.unpin_source("A 1.0")  # not pinned anymore: no-op with a message
     assert "not pinned by an explicit entry" in win.console.toPlainText()
@@ -495,6 +503,37 @@ def test_pin_source_rejects_unpinnable_kinds(tmp_path):
     wait_idle(win)
     win.pin_source("nonsense")
     assert "not in the current source list" in win.console.toPlainText()
+
+
+def test_sources_group_alphabetically_newest_on_top(tmp_path):
+    from PySide6.QtCore import Qt
+
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    lists = tmp_path / "lists"
+    lists.mkdir()
+    make_wabbajack(lists / "b.wabbajack", "Bravo", "1.0", [])
+    make_wabbajack(lists / "a1.wabbajack", "alpha", "1.0", [])  # case-insensitive
+    make_wabbajack(lists / "a2.wabbajack", "alpha", "2.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{lists}']\n",  # no latest_only: all versions active
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+
+    assert win.sources_list.topLevelItemCount() == 2  # alpha group, Bravo
+    alpha, bravo = (win.sources_list.topLevelItem(i) for i in range(2))
+    assert alpha.text(0).startswith("alpha 2.0")  # newest version is the parent
+    assert "[+1 older]" in alpha.text(0)
+    assert alpha.isExpanded()  # child is active, so it must stay visible
+    assert alpha.child(0).text(0).startswith("alpha 1.0")
+    assert alpha.child(0).checkState(0) == Qt.CheckState.Checked
+    assert bravo.text(0).startswith("Bravo 1.0")
+    assert bravo.childCount() == 0  # single-version lists stay flat
 
 
 def test_action_results_pop_up(tmp_path, monkeypatch):
@@ -562,7 +601,7 @@ def test_apply_config_saves_and_refreshes(tmp_path):
     # Excluded sources stay visible (unchecked) so they can be reinstated;
     # a glob exclude locks the checkbox and points at the editor.
     item = find_item(win, "A 1.0")
-    assert item.checkState() == Qt.CheckState.Unchecked
+    assert item.checkState(0) == Qt.CheckState.Unchecked
     assert not item.flags() & Qt.ItemFlag.ItemIsEnabled
     assert "0 active source(s) loaded." in win.console.toPlainText()
     assert config.load(tmp_path / "modsweep.toml").exclude == ["A*"]

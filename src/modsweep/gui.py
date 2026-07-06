@@ -38,7 +38,6 @@ try:
         QLabel,
         QLineEdit,
         QListWidget,
-        QListWidgetItem,
         QMainWindow,
         QMenu,
         QMessageBox,
@@ -50,6 +49,8 @@ try:
         QTableWidget,
         QTableWidgetItem,
         QTabWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
         QVBoxLayout,
         QWidget,
     )
@@ -76,7 +77,7 @@ from .cli import (
     survey_sources,
 )
 from .hashutil import hash_file
-from .manifest import Manifest
+from .manifest import Manifest, version_key
 from .matcher import STALE, UNCLAIMED, match
 from .report import candidate_rows, claim_rows, reclaim_bytes, status_rows
 from .scanner import scan
@@ -530,12 +531,15 @@ class MainWindow(QMainWindow):
         self._worker: Worker | None = None
 
         self.show_result_popups = True
-        self.sources_list = QListWidget()
+        self.sources_list = QTreeWidget()
+        self.sources_list.setHeaderHidden(True)
         self.sources_list.setAlternatingRowColors(True)
         self.sources_list.setToolTip(
             "Every checked source protects the files it names.\n"
             "Untick a list to retire it (Apply Selection writes an exclude "
-            "for you); tick an excluded one to reinstate it.\n\n" + RESOLUTION_HELP
+            "for you); tick an excluded one to reinstate it.\n"
+            "Lists with several versions group under their newest - expand "
+            "a row to reach older versions.\n\n" + RESOLUTION_HELP
         )
         self.sources_list.itemChanged.connect(self._on_source_toggled)
         self.sources_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -559,13 +563,6 @@ class MainWindow(QMainWindow):
 
         self.select_all_btn = QPushButton("All")
         self.select_none_btn = QPushButton("None")
-        self.show_superseded = QCheckBox("Show superseded")
-        self.show_superseded.setToolTip(
-            "Versions locked out by latest_only are hidden to keep this "
-            "list short (the bundled Nolvus manifests grow with every guide "
-            "release). Show them to pin an older version."
-        )
-        self.show_superseded.toggled.connect(lambda _: self._render_sources())
         self.apply_selection_btn = QPushButton("Apply Selection")
         self.select_all_btn.setToolTip("Check every selectable source")
         self.select_none_btn.setToolTip("Uncheck every selectable source")
@@ -581,7 +578,6 @@ class MainWindow(QMainWindow):
         selection_bar = QHBoxLayout()
         selection_bar.addWidget(self.select_all_btn)
         selection_bar.addWidget(self.select_none_btn)
-        selection_bar.addWidget(self.show_superseded)
         selection_bar.addStretch()
         selection_bar.addWidget(self.apply_selection_btn)
 
@@ -1090,82 +1086,105 @@ class MainWindow(QMainWindow):
         self._render_sources()
 
     def _render_sources(self) -> None:
-        hidden = sum(1 for i in self._all_infos if i.state == "superseded")
-        self.show_superseded.setText(f"Show superseded ({hidden})")
-        visible = [
-            i for i in self._all_infos
-            if i.state != "superseded" or self.show_superseded.isChecked()
-        ]
+        """One row per list, newest version as the parent, older versions as
+        children. Groups collapse unless a child carries a user decision
+        (pin/exclusion), so routine version churn never floods the list."""
+        groups: dict[str, list[SourceInfo]] = {}
+        for info in self._all_infos:
+            key = (info.manifest.name or info.manifest.label).lower()
+            groups.setdefault(key, []).append(info)
+
         self._suppress_source_signal = True
         self.sources_list.clear()
-        for info in visible:
-            self.sources_list.addItem(self._source_item(info))
+        for key in sorted(groups):
+            members = sorted(
+                groups[key],
+                key=lambda i: version_key(i.manifest.version),
+                reverse=True,
+            )
+            newest, *older = members
+            parent = self._source_item(newest)
+            for info in older:
+                parent.addChild(self._source_item(info))
+            if older:
+                parent.setText(0, parent.text(0) + f"  [+{len(older)} older]")
+            self.sources_list.addTopLevelItem(parent)
+            if older:
+                parent.setExpanded(any(i.state != "superseded" for i in older))
         self._suppress_source_signal = False
         self.apply_selection_btn.setEnabled(False)
 
-    def _source_item(self, info: SourceInfo) -> QListWidgetItem:
+    def _iter_source_items(self):
+        for i in range(self.sources_list.topLevelItemCount()):
+            top = self.sources_list.topLevelItem(i)
+            yield top
+            for j in range(top.childCount()):
+                yield top.child(j)
+
+    def _source_item(self, info: SourceInfo) -> QTreeWidgetItem:
         m = info.manifest
-        item = QListWidgetItem(f"{m.label}  ({len(m.entries)} entries)")
-        item.setData(Qt.ItemDataRole.UserRole, (m.label, info.state, info.detail))
+        item = QTreeWidgetItem([f"{m.label}  ({len(m.entries)} entries)"])
+        item.setData(0, Qt.ItemDataRole.UserRole, (m.label, info.state, info.detail))
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         if info.state in ("active", "pinned"):
-            item.setCheckState(Qt.CheckState.Checked)
+            item.setCheckState(0, Qt.CheckState.Checked)
             if info.state == "pinned":
-                item.setIcon(_pin_icon())
+                item.setIcon(0, _pin_icon())
                 reason = (
                     f"kept despite {info.detail}"
                     if info.detail
                     else "never dropped by latest_only"
                 )
-                item.setToolTip(f"Pinned: named explicitly in the config - {reason}")
+                item.setToolTip(0, f"Pinned: named explicitly in the config - {reason}")
             else:
-                item.setToolTip("Active - untick to retire this list")
+                item.setToolTip(0, "Active - untick to retire this list")
         elif info.state == "excluded":
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setIcon(_ban_icon())
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+            item.setIcon(0, _ban_icon())
             if is_exact_exclude(info.detail, m.label):
-                item.setToolTip("Excluded - tick to reinstate")
+                item.setToolTip(0, "Excluded - tick to reinstate")
             else:
                 self._lock_item(item, f"excluded by '{info.detail}'")
                 item.setToolTip(
+                    0,
                     f"Excluded by the pattern '{info.detail}' - manage "
-                    f"it under Edit Config > Exclude"
+                    f"it under Edit Config > Exclude",
                 )
         else:  # superseded by latest-only
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setIcon(_lock_icon())
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+            item.setIcon(0, _lock_icon())
             self._lock_item(item, "locked by latest_only")
             item.setToolTip(
+                0,
                 f"latest_only is locking this version out: {info.detail} "
                 f"supersedes it. Right-click to pin this version - pinned "
-                f"files survive the filter."
+                f"files survive the filter.",
             )
         return item
 
     @staticmethod
-    def _lock_item(item: QListWidgetItem, reason: str) -> None:
+    def _lock_item(item: QTreeWidgetItem, reason: str) -> None:
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-        item.setText(f"{item.text()}  - {reason}")
-        font = item.font()
+        item.setText(0, f"{item.text(0)}  - {reason}")
+        font = item.font(0)
         font.setItalic(True)
-        item.setFont(font)
+        item.setFont(0, font)
 
-    def _on_source_toggled(self, _item) -> None:
+    def _on_source_toggled(self, _item, _column: int = 0) -> None:
         if not self._suppress_source_signal:
             self.apply_selection_btn.setEnabled(True)
 
     def _set_all_sources(self, checked: bool) -> None:
         target = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for i in range(self.sources_list.count()):
-            item = self.sources_list.item(i)
+        for item in self._iter_source_items():
             if item.flags() & Qt.ItemFlag.ItemIsEnabled:
-                item.setCheckState(target)
+                item.setCheckState(0, target)
 
     def _sources_menu(self, pos) -> None:  # pragma: no cover - native menu
         item = self.sources_list.itemAt(pos)
         if item is None:
             return
-        label, source_state, detail = item.data(Qt.ItemDataRole.UserRole)
+        label, source_state, detail = item.data(0, Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         info = self._last_infos.get(label)
         pinnable = (
@@ -1250,12 +1269,11 @@ class MainWindow(QMainWindow):
     def apply_source_selection(self) -> None:
         """Translate the checkboxes into exact-label excludes and reload."""
         exclude = list(self.cfg.exclude)
-        for i in range(self.sources_list.count()):
-            item = self.sources_list.item(i)
+        for item in self._iter_source_items():
             if not item.flags() & Qt.ItemFlag.ItemIsEnabled:
                 continue
-            label, source_state, _detail = item.data(Qt.ItemDataRole.UserRole)
-            checked = item.checkState() == Qt.CheckState.Checked
+            label, source_state, _detail = item.data(0, Qt.ItemDataRole.UserRole)
+            checked = item.checkState(0) == Qt.CheckState.Checked
             if source_state in ("active", "pinned") and not checked:
                 pattern = exact_exclude_pattern(label)
                 if not any(is_exact_exclude(e, label) for e in exclude):
