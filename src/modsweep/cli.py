@@ -387,6 +387,9 @@ def survey_sources(
             flags[old.label] = ("superseded", winner.label)
         for m, winner in pinned_kept:
             flags[m.label] = ("pinned", winner.label)
+    for m in manifests:  # explicitly-named sources read as pinned even when
+        if m.label not in flags and m.label in pinned:  # they win on their own
+            flags[m.label] = ("pinned", "")
     return [SourceInfo(m, *flags.get(m.label, ("active", ""))) for m in manifests]
 
 

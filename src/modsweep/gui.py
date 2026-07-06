@@ -347,7 +347,7 @@ class ConfigEditorDialog(QDialog):
 
     def __init__(self, cfg: config.Config, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Edit modsweep config")
+        self.setWindowTitle("Edit Mod Sweep config")
         self.resize(760, 560)
         self._cache = cfg.cache  # not edited here; preserved through saves
 
@@ -476,7 +476,7 @@ class Worker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self, config_path: Path | None = None, show_welcome: bool = True):
         super().__init__()
-        self.setWindowTitle("modsweep")
+        self.setWindowTitle("Mod Sweep")
         self.setWindowIcon(_app_icon())
         self.resize(1200, 750)
         self._worker: Worker | None = None
@@ -651,7 +651,7 @@ class MainWindow(QMainWindow):
         if settings.value("welcome/suppressed", False, type=bool):
             return
         box = QMessageBox(self)
-        box.setWindowTitle("Welcome to modsweep")
+        box.setWindowTitle("Welcome to Mod Sweep")
         box.setText(WELCOME)
         suppress = QCheckBox("Don't show this again")
         box.setCheckBox(suppress)
@@ -669,7 +669,7 @@ class MainWindow(QMainWindow):
 
     def open_config(self) -> None:  # pragma: no cover - native dialog
         chosen, _ = QFileDialog.getOpenFileName(
-            self, "Open modsweep config", "", "TOML (*.toml)"
+            self, "Open Mod Sweep config", "", "TOML (*.toml)"
         )
         if chosen:
             self.config_path = Path(chosen)
@@ -855,7 +855,7 @@ class MainWindow(QMainWindow):
             "Permanently delete batch?",
             f"PERMANENTLY delete this quarantine batch?\n\n{described}"
             f"{self._trust_period_note(Path(batch))}\n\n"
-            "This is the only unrecoverable action in modsweep.\n"
+            "This is the only unrecoverable action in Mod Sweep.\n"
             "There is NO undo.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -1011,7 +1011,7 @@ class MainWindow(QMainWindow):
             return None
         labels = [self._describe_batch(b.path) for b in batches]
         chosen, ok = QInputDialog.getItem(
-            self, "modsweep", title, labels, len(labels) - 1, False
+            self, "Mod Sweep", title, labels, len(labels) - 1, False
         )
         if not ok:
             return None
@@ -1039,9 +1039,13 @@ class MainWindow(QMainWindow):
             if info.state in ("active", "pinned"):
                 item.setCheckState(Qt.CheckState.Checked)
                 if info.state == "pinned":
+                    reason = (
+                        f"kept despite {info.detail}"
+                        if info.detail
+                        else "never dropped by latest_only"
+                    )
                     item.setToolTip(
-                        f"Pinned: named explicitly in the config, kept "
-                        f"despite {info.detail}"
+                        f"Pinned: named explicitly in the config - {reason}"
                     )
                 else:
                     item.setToolTip("Active - untick to retire this list")
@@ -1094,7 +1098,12 @@ class MainWindow(QMainWindow):
             return
         label, source_state, detail = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
-        if source_state == "superseded":
+        info = self._last_infos.get(label)
+        pinnable = (
+            info is not None
+            and _infer_file_kind(info.manifest.source_path) in self._PIN_KEYS
+        )
+        if source_state in ("active", "superseded") and pinnable:
             menu.addAction(
                 "Pin this version (survives latest_only)",
                 lambda: self.pin_source(label),
@@ -1227,7 +1236,7 @@ class MainWindow(QMainWindow):
         unmissable even when the user is watching another tab."""
         self._on_status(text)
         if self.show_result_popups:
-            QMessageBox.information(self, "modsweep", text)
+            QMessageBox.information(self, "Mod Sweep", text)
 
     def _cache_path(self) -> Path:
         return self.cfg.cache or DEFAULT_CACHE
@@ -1274,7 +1283,8 @@ class MainWindow(QMainWindow):
 
 def main() -> int:  # pragma: no cover - event loop
     app = QApplication(sys.argv)
-    app.setApplicationName("modsweep")
+    app.setApplicationName("modsweep")  # machine id: QSettings/paths key on this
+    app.setApplicationDisplayName("Mod Sweep")
     app.setWindowIcon(_app_icon())
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     window = MainWindow(config_path)

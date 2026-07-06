@@ -432,6 +432,35 @@ def test_retire_and_reinstate_via_context_actions(tmp_path):
     assert find_item(win, "B 1.0").checkState() == Qt.CheckState.Checked
 
 
+def test_pin_active_source_shows_pinned_state(tmp_path):
+    from PySide6.QtCore import Qt
+
+    from modsweep import config
+
+    app()
+    dl = tmp_path / "downloads"
+    dl.mkdir()
+    lists = tmp_path / "lists"
+    lists.mkdir()
+    make_wabbajack(lists / "a.wabbajack", "A", "1.0", [])
+    cfg = tmp_path / "modsweep.toml"
+    cfg.write_text(
+        f"downloads = '{dl}'\ncache = '{tmp_path / 'c.sqlite'}'\n"
+        f"wabbajack = ['{lists}']\n",  # folder: implicit, so A starts active
+        encoding="utf-8",
+    )
+    win = window(cfg)
+    wait_idle(win)
+    assert "untick to retire" in find_item(win, "A 1.0").toolTip()
+
+    win.pin_source("A 1.0")  # pin for future use, ahead of any filter
+    wait_idle(win)
+    assert lists / "a.wabbajack" in config.load(cfg).wabbajack
+    item = find_item(win, "A 1.0")
+    assert item.checkState() == Qt.CheckState.Checked
+    assert "never dropped by latest_only" in item.toolTip()
+
+
 def test_pin_source_rejects_unpinnable_kinds(tmp_path):
     app()
     win = window(build_config(tmp_path))
