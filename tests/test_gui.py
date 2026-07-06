@@ -8,14 +8,20 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from helpers import make_wabbajack, wj_hash  # noqa: E402
+from modsweep import gui as gui_mod  # noqa: E402
+from modsweep import sweep as sweep_mod  # noqa: E402
 from modsweep.gui import MainWindow  # noqa: E402
 
 
 def app():
     return QApplication.instance() or QApplication([])
+
+
+def window(cfg):
+    return MainWindow(cfg, show_welcome=False)
 
 
 def wait_idle(win, timeout_ms=15_000):
@@ -50,19 +56,30 @@ dir = '{tmp_path / "quarantine"}'
     return cfg
 
 
+def swept_window(tmp_path):
+    """Window whose junk.7z is already hashed and quarantined."""
+    win = window(build_config(tmp_path))
+    wait_idle(win)
+    win.run_hash_candidates()  # chains an automatic report
+    wait_idle(win)
+    wait_idle(win)
+    win.run_sweep(apply=False)  # dry run first, like a careful user
+    wait_idle(win)
+    return win
+
+
 def test_window_lists_sources_via_worker(tmp_path):
     app()
-    win = MainWindow(build_config(tmp_path))
-    wait_idle(win)  # refresh runs threaded now
+    win = window(build_config(tmp_path))
+    wait_idle(win)  # refresh runs threaded
     assert win.sources_list.count() == 1
     assert "A 1.0" in win.sources_list.item(0).text()
     assert "1 active source(s) loaded." in win.console.toPlainText()
-    assert "Welcome to modsweep" in win.console.toPlainText()
 
 
 def test_report_action_populates_tables(tmp_path):
     app()
-    win = MainWindow(build_config(tmp_path))
+    win = window(build_config(tmp_path))
     wait_idle(win)
     win.run_report()
     wait_idle(win)
@@ -76,14 +93,70 @@ def test_report_action_populates_tables(tmp_path):
 
 def test_sweep_dry_run_reports_refusal(tmp_path):
     app()
-    win = MainWindow(build_config(tmp_path))
+    win = window(build_config(tmp_path))
     wait_idle(win)
     win.run_sweep(apply=False)
     wait_idle(win)
     text = win.console.toPlainText()
     assert "Sweep plan:" in text
     assert "Refused (hash never checked): 1" in text  # junk.7z is unhashed
-    assert "Dry run - nothing moved." in text
+    assert "refused (unhashed)" in text  # status summary line
+
+
+def test_hash_then_sweep_then_restore_via_gui(tmp_path):
+    app()
+    win = swept_window(tmp_path)
+    dl = tmp_path / "downloads"
+
+    # sweep for real: patch the confirmation dialog to answer Yes
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        win.run_sweep(apply=True)
+        wait_idle(win)
+        wait_idle(win)  # chained auto-report
+    finally:
+        QMessageBox.question = original
+    assert not (dl / "junk.7z").exists()
+
+    (batch,) = sweep_mod.list_batches(tmp_path / "quarantine")
+    win.run_restore(batch.path)
+    wait_idle(win)
+    wait_idle(win)  # chained auto-report
+    assert (dl / "junk.7z").exists()
+    assert "Restored 1 files" in win.console.toPlainText()
+
+
+def test_purge_requires_confirmation_and_deletes(tmp_path, monkeypatch):
+    app()
+    win = swept_window(tmp_path)
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        win.run_sweep(apply=True)
+        wait_idle(win)
+        wait_idle(win)
+    finally:
+        QMessageBox.question = original
+    (batch,) = sweep_mod.list_batches(tmp_path / "quarantine")
+
+    # Declining the warning leaves the batch alone.
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "warning",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+    )
+    win.run_purge(batch.path)
+    assert batch.path.exists()
+
+    # Accepting it purges permanently.
+    monkeypatch.setattr(
+        gui_mod.QMessageBox, "warning",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+    )
+    win.run_purge(batch.path)
+    wait_idle(win)
+    assert not batch.path.exists()
+    assert "permanently deleted" in win.console.toPlainText()
 
 
 def test_tables_sort_numerically(tmp_path):
@@ -99,7 +172,7 @@ def test_tables_sort_numerically(tmp_path):
         f"wabbajack = ['{tmp_path / 'a.wabbajack'}']\n",
         encoding="utf-8",
     )
-    win = MainWindow(cfg)
+    win = window(cfg)
     wait_idle(win)
     win.run_report()
     wait_idle(win)

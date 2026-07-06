@@ -16,15 +16,18 @@ from __future__ import annotations
 import io
 import sys
 from contextlib import redirect_stderr
+from datetime import datetime
 from pathlib import Path
 
 try:
-    from PySide6.QtCore import Qt, QThread, Signal
-    from PySide6.QtGui import QFont
+    from PySide6.QtCore import QSettings, Qt, QThread, Signal
+    from PySide6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
+        QCheckBox,
         QFileDialog,
         QHBoxLayout,
+        QInputDialog,
         QLabel,
         QListWidget,
         QMainWindow,
@@ -56,13 +59,16 @@ from .report import candidate_rows, claim_rows, reclaim_bytes, status_rows
 from .scanner import scan
 
 WELCOME = """\
-Welcome to modsweep. Typical flow:
-  1. Report            - classify the downloads directory (read-only)
-  2. Hash Candidates   - verify candidates by hash (the safety gate for sweeping)
-  3. Sweep (Dry Run)   - preview exactly what would be quarantined
-  4. Sweep + Apply     - move candidates to a restorable quarantine batch
-Nothing is ever hard-deleted from the GUI; restore and purge live in the CLI.
-"""
+Typical flow:
+
+1. Report - classify the downloads directory (read-only)
+2. Hash Candidates - verify candidates by hash (the safety gate for sweeping)
+3. Sweep (Dry Run) - preview exactly what would be quarantined
+4. Sweep + Apply - move candidates to a restorable quarantine batch
+
+Sweeps never hard-delete: batches sit in quarantine until you Restore or
+Purge them. Purge is the only permanent deletion. Hover any button for
+details."""
 
 TOOLTIPS = {
     "open": "Choose a different modsweep.toml",
@@ -74,12 +80,28 @@ TOOLTIPS = {
     "files whose hash was never checked",
     "dry": "Preview exactly what a sweep would quarantine - nothing is moved",
     "apply": "Move all candidates to a timestamped quarantine batch "
-    "(undo with: modsweep restore <batch>)",
+    "(undo with Restore)",
+    "restore": "Move a quarantined batch back into the downloads directory",
+    "purge": "PERMANENTLY delete a quarantine batch - the only "
+    "unrecoverable action in modsweep",
 }
 
 
 def _gb(size: float) -> str:
     return f"{size / (1 << 30):,.2f} GB"
+
+
+def _app_icon() -> QIcon:
+    """A broom, rendered from the emoji font - good enough until a real .ico."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    font = QFont()
+    font.setPointSize(40)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "\U0001f9f9")
+    painter.end()
+    return QIcon(pixmap)
 
 
 class NumericItem(QTableWidgetItem):
@@ -103,6 +125,7 @@ class Worker(QThread):
     """
 
     line = Signal(str)
+    status = Signal(str)  # one-line action summary for the status bar
     progress = Signal(int, int)  # done, total; total 0 hides the bar
     payload = Signal(object)  # (kind, data) delivered back to the UI thread
     failed = Signal(str)
@@ -121,13 +144,13 @@ class Worker(QThread):
         finally:
             for announced in buffer.getvalue().splitlines():
                 self.line.emit(announced)
-            self.progress.emit(0, 0)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config_path: Path | None = None):
+    def __init__(self, config_path: Path | None = None, show_welcome: bool = True):
         super().__init__()
         self.setWindowTitle("modsweep")
+        self.setWindowIcon(_app_icon())
         self.resize(1200, 750)
         self._worker: Worker | None = None
 
@@ -159,10 +182,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress)
         self.setCentralWidget(root)
 
-        self.log(WELCOME)
+        self.log("Tip: hover any button for guidance; action output lands here.")
         self.config_path = config_path
         self.cfg = config.load(config_path)
+        self.status_config = QLabel()
+        self.statusBar().addPermanentWidget(self.status_config)
         self._show_config_status()
+        if show_welcome:
+            self._maybe_show_welcome()
         self.refresh_sources()
 
     # --- construction -------------------------------------------------------
@@ -175,6 +202,8 @@ class MainWindow(QMainWindow):
             "hash": QPushButton("Hash Candidates"),
             "dry": QPushButton("Sweep (Dry Run)"),
             "apply": QPushButton("Sweep + Apply..."),
+            "restore": QPushButton("Restore..."),
+            "purge": QPushButton("Purge..."),
         }
         for name, button in self.buttons.items():
             button.setToolTip(TOOLTIPS[name])
@@ -184,6 +213,8 @@ class MainWindow(QMainWindow):
         self.buttons["hash"].clicked.connect(self.run_hash_candidates)
         self.buttons["dry"].clicked.connect(lambda: self.run_sweep(apply=False))
         self.buttons["apply"].clicked.connect(lambda: self.run_sweep(apply=True))
+        self.buttons["restore"].clicked.connect(lambda: self.run_restore())
+        self.buttons["purge"].clicked.connect(lambda: self.run_purge())
 
     def _build_tabs(self) -> None:
         self.summary_label = QLabel("Run Report to classify the downloads directory.")
@@ -227,11 +258,24 @@ class MainWindow(QMainWindow):
         table.verticalHeader().hide()
         return table
 
+    def _maybe_show_welcome(self) -> None:  # pragma: no cover - modal dialog
+        settings = QSettings("modsweep", "modsweep")
+        if settings.value("welcome/suppressed", False, type=bool):
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Welcome to modsweep")
+        box.setText(WELCOME)
+        suppress = QCheckBox("Don't show this again")
+        box.setCheckBox(suppress)
+        box.exec()
+        if suppress.isChecked():
+            settings.setValue("welcome/suppressed", True)
+
     # --- config / sources -----------------------------------------------------
 
     def _show_config_status(self) -> None:
         shown = self.config_path or Path(config.DEFAULT_NAME)
-        self.statusBar().showMessage(
+        self.status_config.setText(
             f"config: {shown}   downloads: {self.cfg.downloads or '<unset>'}"
         )
 
@@ -263,8 +307,9 @@ class MainWindow(QMainWindow):
         def action(worker: Worker) -> None:
             manifests = self._load_active(worker)
             worker.payload.emit(("sources", manifests))
+            worker.status.emit(f"{len(manifests)} active source(s) loaded.")
 
-        self._start(action)
+        self._start(action, "Loading sources")
 
     # --- actions ---------------------------------------------------------------
 
@@ -278,8 +323,11 @@ class MainWindow(QMainWindow):
             finally:
                 cache.close()
             worker.payload.emit(("report", (manifests, results)))
+            worker.status.emit(
+                f"Report updated - potential reclaim {_gb(reclaim_bytes(results))}."
+            )
 
-        self._start(action)
+        self._start(action, "Building report")
 
     def run_hash_candidates(self) -> None:
         def action(worker: Worker) -> None:
@@ -296,24 +344,25 @@ class MainWindow(QMainWindow):
                 pending = [
                     f for f in files if f.rel in wanted and cache.get(f) is None
                 ]
-                worker.line.emit(f"{len(pending):,} candidate file(s) to hash.")
                 for i, disk in enumerate(pending, 1):
                     xxh64_b64, crc32 = hash_file(disk.path)
                     cache.put(disk, xxh64_b64, crc32)
                     worker.progress.emit(i, len(pending))
             finally:
                 cache.close()
-            worker.line.emit("Hashing done.")
+            worker.status.emit(
+                f"Hashing done - {len(pending):,} candidate file(s) hashed."
+            )
 
-        self._start(action, then_report=True)
+        self._start(action, "Hashing candidates", then_report=True)
 
     def run_sweep(self, apply: bool) -> None:
         if apply:  # pragma: no cover - native dialog
             answer = QMessageBox.question(
                 self,
                 "Apply sweep?",
-                "Move all candidates to quarantine? (Restorable via the CLI:"
-                " modsweep restore <batch>)",
+                "Move all candidates to quarantine?\n\n"
+                "Fully reversible with the Restore button.",
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
@@ -338,15 +387,88 @@ class MainWindow(QMainWindow):
                     f"file(s) - use Hash Candidates first"
                 )
             if not apply:
-                worker.line.emit("Dry run - nothing moved.")
+                worker.status.emit(
+                    f"Dry run: {len(plan.ready):,} files / "
+                    f"{_gb(plan.ready_bytes)} would be quarantined"
+                    + (f"; {len(plan.refused):,} refused (unhashed)" if plan.refused else "")
+                    + "."
+                )
                 return
             if not plan.ready:
-                worker.line.emit("Nothing to move.")
+                worker.status.emit("Nothing to move - no eligible candidates.")
                 return
             batch = sweep_mod.execute(plan, quarantine)
-            worker.line.emit(f"Moved {len(plan.ready):,} files to {batch}")
+            worker.status.emit(
+                f"Moved {len(plan.ready):,} files ({_gb(plan.ready_bytes)}) "
+                f"to {batch.name} - restorable."
+            )
 
-        self._start(action, then_report=apply)
+        self._start(action, "Sweeping", then_report=apply)
+
+    def run_restore(self, batch: Path | None = None) -> None:
+        if batch is None:  # pragma: no cover - native dialog
+            batch = self._pick_batch("Restore which quarantine batch?")
+            if batch is None:
+                return
+
+        def action(worker: Worker) -> None:
+            moved, skipped, missing = sweep_mod.restore(batch)
+            message = f"Restored {moved:,} files from {Path(batch).name}."
+            if skipped:
+                message += f" {skipped:,} skipped (original path occupied)."
+            if missing:
+                message += f" {missing:,} missing from the batch."
+            worker.status.emit(message)
+
+        self._start(action, "Restoring", then_report=True)
+
+    def run_purge(self, batch: Path | None = None) -> None:
+        if batch is None:  # pragma: no cover - native dialog
+            batch = self._pick_batch("Purge which quarantine batch?")
+            if batch is None:
+                return
+        described = self._describe_batch(Path(batch))
+        answer = QMessageBox.warning(
+            self,
+            "Permanently delete batch?",
+            f"PERMANENTLY delete this quarantine batch?\n\n{described}\n\n"
+            "This is the only unrecoverable action in modsweep.\n"
+            "There is NO undo.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def action(worker: Worker) -> None:
+            sweep_mod.purge_batch(Path(batch))
+            worker.status.emit(f"Purged {Path(batch).name} - permanently deleted.")
+
+        self._start(action, "Purging")
+
+    def _quarantine_batches(self) -> list[sweep_mod.Batch]:
+        quarantine = _quarantine_dir_for(self.cfg.downloads, self.cfg.quarantine)
+        return sweep_mod.list_batches(quarantine)
+
+    def _describe_batch(self, batch: Path) -> str:
+        for b in self._quarantine_batches():
+            if b.path == batch:
+                age = (datetime.now() - b.created).days
+                return f"{b.path.name}  ({b.files:,} files, {_gb(b.size)}, {age}d old)"
+        return str(batch)
+
+    def _pick_batch(self, title: str) -> Path | None:  # pragma: no cover - dialog
+        batches = self._quarantine_batches()
+        if not batches:
+            QMessageBox.information(self, "No batches", "The quarantine is empty.")
+            return None
+        labels = [self._describe_batch(b.path) for b in batches]
+        chosen, ok = QInputDialog.getItem(
+            self, "modsweep", title, labels, len(labels) - 1, False
+        )
+        if not ok:
+            return None
+        return batches[labels.index(chosen)].path
 
     # --- rendering ---------------------------------------------------------------
 
@@ -362,7 +484,6 @@ class MainWindow(QMainWindow):
         self.sources_list.clear()
         for m in manifests:
             self.sources_list.addItem(f"{m.label}  ({len(m.entries)} entries)")
-        self.log(f"{len(manifests)} active source(s) loaded.")
 
     def _show_report(self, manifests: list[Manifest], results) -> None:
         total_files = len(results)
@@ -416,43 +537,56 @@ class MainWindow(QMainWindow):
     def log(self, text: str) -> None:
         self.console.appendPlainText(text)
 
+    def _on_status(self, text: str) -> None:
+        self.statusBar().showMessage(text, 30_000)
+        self.log(text)
+
     def _cache_path(self) -> Path:
         return self.cfg.cache or DEFAULT_CACHE
 
-    def _start(self, fn, then_report: bool = False) -> None:
+    def _start(self, fn, doing: str, then_report: bool = False) -> None:
         if self._worker is not None and self._worker.isRunning():
             return  # one action at a time
-        self._set_busy(True)
+        self._set_busy(True, doing)
         self._worker = Worker(fn, parent=self)
         self._worker.line.connect(self.log)
+        self._worker.status.connect(self._on_status)
         self._worker.progress.connect(self._on_progress)
         self._worker.payload.connect(self._on_payload)
-        self._worker.failed.connect(lambda msg: self.log(f"error: {msg}"))
+        self._worker.failed.connect(lambda msg: self._on_status(f"error: {msg}"))
         self._worker.finished.connect(lambda: self._on_finished(then_report))
         self._worker.start()
 
     def _on_finished(self, then_report: bool) -> None:
-        self._set_busy(False)
+        self._set_busy(False, "")
         if then_report:
             self.run_report()
 
     def _on_progress(self, done: int, total: int) -> None:
         if total <= 0:
-            self.progress.hide()
+            self.progress.setRange(0, 0)  # back to indeterminate
             return
-        self.progress.show()
-        self.progress.setMaximum(total)
+        self.progress.setRange(0, total)
         self.progress.setValue(done)
 
-    def _set_busy(self, busy: bool) -> None:
+    def _set_busy(self, busy: bool, doing: str) -> None:
         for name, button in self.buttons.items():
             if name != "open":
                 button.setEnabled(not busy)
+        if busy:
+            # Indeterminate until an action reports concrete progress, so the
+            # window never looks frozen while a worker runs.
+            self.progress.setRange(0, 0)
+            self.progress.show()
+            self.statusBar().showMessage(f"{doing}...")
+        else:
+            self.progress.hide()
 
 
 def main() -> int:  # pragma: no cover - event loop
     app = QApplication(sys.argv)
     app.setApplicationName("modsweep")
+    app.setWindowIcon(_app_icon())
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     window = MainWindow(config_path)
     window.show()

@@ -230,14 +230,17 @@ The GUI is a thin front-end over the same pipeline: it reads `modsweep.toml`
 (Open Config... to switch) and lists the active sources. The Report tab
 renders the classification as sortable tables (status summary, per-source
 claims with the unique-holdings column, all deletion candidates); the Log
-tab collects resolution announcements and action output, and opens with a
-short workflow walkthrough — every button also carries a hover tooltip.
-Actions (Report, Hash Candidates with progress, Sweep dry run, Sweep +
-Apply with confirmation) run on a worker thread, including source
-refreshing, so the window never blocks; state-changing actions re-run the
-report automatically. No custom palette or stylesheet is set anywhere, so
-the interface follows the system light/dark theme natively. Restore and
-purge stay on the CLI.
+tab collects resolution announcements and action output. A welcome dialog
+walks through the workflow on launch (suppressible, persisted via QSettings)
+and every button carries a hover tooltip. All actions — Report, Hash
+Candidates, Sweep dry run, Sweep + Apply (confirmation), Restore (batch
+picker), and Purge (batch picker plus a strongly-worded confirmation; the
+only permanent deletion) — run on a worker thread with an indeterminate
+progress bar and status-bar summaries, so the window never looks frozen and
+every action visibly reports its outcome even when there was nothing to do.
+State-changing actions re-run the report automatically. No custom palette
+or stylesheet is set anywhere, so the interface follows the system
+light/dark theme natively.
 
 ## Testing
 
@@ -257,7 +260,17 @@ on Windows/Linux/macOS × Python 3.12/3.14.
   the pinning mechanics already support "latest plus these specific
   versions" (list a bundled file explicitly next to the directory), the
   GUI just needs to surface it.
-- GUI growth: restore/purge actions, streaming announcements instead of
-  end-of-action replay.
+- GUI growth: streaming announcements instead of end-of-action replay; a
+  real .ico to replace the emoji-rendered broom.
+- Distribution: publish to PyPI so `uv tool install modsweep` / `pipx
+  install modsweep` delivers both CLI and GUI without cloning; then a
+  release workflow building standalone executables (PyInstaller: windowed
+  `modsweep-gui.exe` + console `modsweep.exe` from one spec) for users
+  without Python.
+- Performance: cache parsed manifests keyed by (path, size, mtime) so the
+  large modlist JSONs are not re-parsed on every action — the actual cost
+  behind source refreshing. Parallel hashing deliberately skipped: hashing
+  is drive-bound (~1.3 GB/s observed), threads would only help on fast NVMe
+  and would actively hurt on HDDs.
 - Nolvus sibling list: the author's next guide is expected to use the same
   InstallPackage format — bundle its manifests as they are released.
