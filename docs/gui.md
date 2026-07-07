@@ -10,8 +10,10 @@ uv sync --extra gui          # from source; installs PySide6
 uv run modsweep-gui          # optional: pass a config path
 ```
 
-Installed via the standalone zip, just run `modsweep-gui.exe`; via
-uv/pipx, install with the extra: `uv tool install "modsweep[gui]"`.
+From a release download, run `modsweep-gui.exe` - the single exe in the
+Windows `-gui` zip, or inside the `modsweep/` folder of the platform
+archive. Via uv/pipx, install with the extra:
+`uv tool install "modsweep[gui]"`.
 
 No custom palette or stylesheet is set anywhere, so the interface follows
 the system light/dark theme natively.
