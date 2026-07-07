@@ -132,6 +132,9 @@ https://github.com/zspatter/mod-sweep - MIT licensed. Documentation:
 [vektor9999](https://www.nexusmods.com/profile/vektor9999) for sharing the
 InstallPackages required for this project.
 
+*Mod Sweep is an independent tool - not affiliated with or endorsed by
+the Wabbajack or Nolvus teams.*
+
 ## Suggested Nexus fields
 
 - Category: Utilities
