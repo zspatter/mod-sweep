@@ -140,3 +140,16 @@ InstallPackages required for this project.
   as the main file ("Mod Sweep"), with `modsweep-vX.Y.Z-windows-cli.zip`
   ("Mod Sweep CLI") and `modsweep-vX.Y.Z-linux.zip`
   ("Mod Sweep (Linux)") as optional files; keep versions in sync.
+- File descriptions (version-free on purpose - reuse verbatim each upload):
+  - Mod Sweep: "The Mod Sweep app for Windows: one self-contained exe -
+    download and run, no install needed. This is all most users need.
+    SmartScreen may warn on first run (unsigned open-source build) -
+    choose More info > Run anyway."
+  - Mod Sweep CLI: "Command-line version for scripting and scheduled
+    cleanups - the same engine as the app (report, hash, sweep, restore,
+    purge, snapshot). Not needed if you use the main app. Run modsweep
+    --help from a terminal to get started."
+  - Mod Sweep (Linux): "Linux build with both the app (modsweep-gui) and
+    the CLI (modsweep). Extract the zip and run from the folder - no
+    install. If your extractor drops the executable permissions, fix
+    with: chmod +x modsweep/modsweep*"
