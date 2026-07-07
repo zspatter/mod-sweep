@@ -136,5 +136,6 @@ InstallPackages required for this project.
 
 - Category: Utilities
 - Tags: cleanup, Wabbajack, Nolvus, Mod Organizer 2
-- Files: upload `modsweep-vX.Y.Z-windows.zip` from the GitHub release;
-  name the file entry "Mod Sweep (Windows)" and keep the version in sync.
+- Files: from the GitHub release, upload `modsweep-vX.Y.Z-windows-gui.zip`
+  as the main file ("Mod Sweep") and `modsweep-vX.Y.Z-windows-cli.zip` as
+  an optional file ("Mod Sweep CLI"); keep versions in sync.
