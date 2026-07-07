@@ -137,6 +137,7 @@ the Wabbajack or Nolvus teams.*
 
 ## Suggested Nexus fields
 
+- Live page: https://www.nexusmods.com/skyrimspecialedition/mods/184583
 - Category: Utilities
 - Tags: cleanup, Wabbajack, Nolvus, Mod Organizer 2
 - Files: from the GitHub release, upload `modsweep-vX.Y.Z-windows-gui.zip`
