@@ -58,7 +58,12 @@ new file name prefix.
   tar.gz twin is the GitHub-native artifact). The Linux entry stays the
   onedir folder on purpose: single-file builds break on noexec /tmp
   mounts, and folders are what Linux users expect anyway. macOS remains
-  GitHub-only. Page copy lives in `docs/nexus-description.md`
+  GitHub-only.
+- Add a Nexus changelog for the version: distill the CHANGELOG.md
+  section into one-line entries (the Nexus widget is version-tied and
+  takes one line per entry). User-facing items only - drop the Internal
+  section, compress perf into a line or two, and lead each line with
+  Fixed/Faster/Changed/Added. Page copy lives in `docs/nexus-description.md`
   (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
   Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
   master first, then update the mirror.
