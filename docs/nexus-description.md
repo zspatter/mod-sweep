@@ -51,8 +51,7 @@ swept into a quarantine folder you can restore from with one click.
   whitelist working even after a `.wabbajack` is deleted.
 - Checks for new releases itself (Help > Check for Updates).
 
-**Install.** Download the zip, extract anywhere, run `modsweep-gui.exe`
-from the extracted folder.
+**Install.** Download the zip, extract anywhere, run `modsweep-gui.exe`.
 Windows SmartScreen may warn on first run - the executables are unsigned
 open-source builds; "More info > Run anyway". A Linux build lives under
 optional files (extract the tarball, run from the folder); macOS builds,
