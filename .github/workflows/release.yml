@@ -91,7 +91,11 @@ jobs:
                      7z a "modsweep-${{ github.ref_name }}-windows-gui.zip" modsweep-gui.exe
                      7z a "modsweep-${{ github.ref_name }}-windows-cli.zip" modsweep.exe ;;
             macOS)   zip -r "modsweep-${{ github.ref_name }}-macos.zip" modsweep ;;
-            Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep ;;
+            # Linux ships twice: tar.gz for GitHub convention, plus a zip
+            # for NexusMods (which only accepts zip/rar/7z). Info-ZIP
+            # stores the exec bits, so standard extractors restore them.
+            Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep
+                     zip -qr "modsweep-${{ github.ref_name }}-linux.zip" modsweep ;;
           esac
       - name: Attach to release
         uses: softprops/action-gh-release@v3

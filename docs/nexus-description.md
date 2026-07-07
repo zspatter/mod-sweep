@@ -54,9 +54,9 @@ swept into a quarantine folder you can restore from with one click.
 **Install.** Download the zip, extract anywhere, run `modsweep-gui.exe`.
 Windows SmartScreen may warn on first run - the executables are unsigned
 open-source builds; "More info > Run anyway". A Linux build lives under
-optional files (extract the tarball, run from the folder); macOS builds,
-the Python package (`pipx install "modsweep[gui]"`), and full source live
-on GitHub.
+optional files (extract, run from the folder); macOS builds, the Python
+package (`pipx install "modsweep[gui]"`), and full source live on
+GitHub.
 
 **Quick start.**
 1. Click **Edit Config...** and point Mod Sweep at your setup: the shared
@@ -138,5 +138,5 @@ InstallPackages required for this project.
 - Tags: cleanup, Wabbajack, Nolvus, Mod Organizer 2
 - Files: from the GitHub release, upload `modsweep-vX.Y.Z-windows-gui.zip`
   as the main file ("Mod Sweep"), with `modsweep-vX.Y.Z-windows-cli.zip`
-  ("Mod Sweep CLI") and `modsweep-vX.Y.Z-linux.tar.gz`
+  ("Mod Sweep CLI") and `modsweep-vX.Y.Z-linux.zip`
   ("Mod Sweep (Linux)") as optional files; keep versions in sync.
