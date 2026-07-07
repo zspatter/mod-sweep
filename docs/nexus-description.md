@@ -140,6 +140,27 @@ InstallPackages required for this project.
   as the main file ("Mod Sweep"), with `modsweep-vX.Y.Z-windows-cli.zip`
   ("Mod Sweep CLI") and `modsweep-vX.Y.Z-linux.zip`
   ("Mod Sweep (Linux)") as optional files; keep versions in sync.
+- Permissions panel (MIT code + on-Nexus monetization disallowed, decided
+  2026-07-07): other user's assets = some third-party content used with
+  permission (Nolvus manifests, LGPL libraries); upload to other sites,
+  modification, and asset use = allowed with credit; conversion = allowed;
+  use in mods being sold = NOT allowed; use in mods earning Donation
+  Points = NOT allowed.
+- Author's instructions text: "The Mod Sweep source code is open source
+  under the MIT license (github.com/zspatter/mod-sweep - see LICENSE):
+  use, modify, and redistribute the code freely with attribution. The
+  packaged files on this page are a different matter: please do not
+  re-upload or repackage them on Nexus for Donation Points or any other
+  monetization - the sold/DP permissions are deliberately disallowed.
+  Scope note: MIT covers the Mod Sweep code only; the bundled Nolvus
+  manifest data is included courtesy of the Nolvus community (thank you,
+  vektor9999) - please do not contact the Nolvus author about it."
+- Credits: "vektor9999 - shared the Nolvus InstallPackage manifests
+  bundled with the app"; "The Nolvus team - creators of Nolvus and the
+  InstallPackage manifest data"; optionally "Built with Python,
+  Qt/PySide6, PyInstaller, and xxHash".
+- Readme tab: deliberately unused - the description plus linked GitHub
+  guides fill that niche.
 - File descriptions (version-free on purpose - reuse verbatim each upload):
   - Mod Sweep: "The Mod Sweep app for Windows: one self-contained exe -
     download and run, no install needed. This is all most users need.
