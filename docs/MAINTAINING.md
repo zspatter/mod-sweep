@@ -51,10 +51,12 @@ new file name prefix.
 
 ## Updating NexusMods
 
-- Upload the new `modsweep-vX.Y.Z-windows-gui.zip` as the page's main
-  file and `modsweep-vX.Y.Z-windows-cli.zip` as an optional file (each
-  holds one self-contained exe), straight from the GitHub release, and
-  update the page version. Page copy lives in `docs/nexus-description.md`
+- Upload straight from the GitHub release, then update the page version:
+  `modsweep-vX.Y.Z-windows-gui.zip` as the main file, with
+  `modsweep-vX.Y.Z-windows-cli.zip` and `modsweep-vX.Y.Z-linux.tar.gz`
+  as optional files. The Linux entry stays the onedir tarball on
+  purpose: single-file builds break on noexec /tmp mounts, and folders
+  are what Linux users expect anyway. macOS remains GitHub-only. Page copy lives in `docs/nexus-description.md`
   (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
   Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
   master first, then update the mirror.
