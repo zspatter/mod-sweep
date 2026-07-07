@@ -145,7 +145,7 @@ InstallPackages required for this project.
   permission (Nolvus manifests, LGPL libraries); upload to other sites,
   modification, and asset use = allowed with credit; conversion = allowed;
   use in mods being sold = NOT allowed; use in mods earning Donation
-  Points = NOT allowed.
+  Points = ask me first.
 - Author's instructions text: "The Mod Sweep source code is open source
   under the MIT license (github.com/zspatter/mod-sweep - see LICENSE):
   use, modify, and redistribute the code freely with attribution. The
