@@ -4,10 +4,10 @@
 # starts faster for it.
 #
 # On Windows the spec ALSO emits single-file portable exes (dist/*.exe),
-# zipped as the -portable release asset. That zip doubles as the NexusMods
-# upload: two bare exes are the layout mod users expect, and Nexus flags
-# new unsigned binaries for review regardless (both onefile and onedir
-# uploads were reviewed).
+# zipped individually as the -gui and -cli release assets. Those are the
+# NexusMods files (GUI as the main download - mod users are GUI-forward;
+# CLI as the optional companion). Nexus flags new unsigned binaries for
+# review regardless of packaging (both onefile and onedir were reviewed).
 #
 #   uv run pyinstaller packaging/modsweep.spec
 import sys

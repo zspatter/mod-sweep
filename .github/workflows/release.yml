@@ -83,13 +83,13 @@ jobs:
         run: |
           cd dist
           # onedir: one folder holding both executables and a shared
-          # _internal. The Windows -portable zip (two single-file exes)
-          # is what goes to NexusMods - the layout mod users expect;
-          # Nexus reviews new unsigned binaries either way.
+          # _internal (GitHub-only). The single-file exes zip individually:
+          # the -gui zip is the NexusMods main file (GUI-forward users),
+          # the -cli zip its optional companion for scripting.
           case "${{ runner.os }}" in
             Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep
-                     7z a "modsweep-${{ github.ref_name }}-windows-portable.zip" \
-                       modsweep.exe modsweep-gui.exe ;;
+                     7z a "modsweep-${{ github.ref_name }}-windows-gui.zip" modsweep-gui.exe
+                     7z a "modsweep-${{ github.ref_name }}-windows-cli.zip" modsweep.exe ;;
             macOS)   zip -r "modsweep-${{ github.ref_name }}-macos.zip" modsweep ;;
             Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep ;;
           esac

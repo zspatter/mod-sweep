@@ -23,8 +23,8 @@ clone with `uv sync --extra gui` done.
    - builds the console `modsweep` + windowed `modsweep-gui` executables on
      Windows/Linux/macOS, smoke-tests each frozen CLI (including bundled
      manifest resolution), and attaches the archives to the GitHub release.
-     Windows additionally gets a `-portable` zip with single-file exes -
-     the artifact that goes to NexusMods.
+     Windows additionally gets single-file `-gui` and `-cli` zips - the
+     NexusMods artifacts (GUI main file, CLI optional file).
 5. Verify: the PyPI page shows the new version; `uv tool upgrade modsweep`
    works; release assets download. Then update NexusMods (below).
 
@@ -51,9 +51,10 @@ new file name prefix.
 
 ## Updating NexusMods
 
-- Upload the new `modsweep-vX.Y.Z-windows-portable.zip` (two single-file
-  exes - the layout mod users expect from a mod page) from the GitHub
-  release and update the page version. Page copy lives in `docs/nexus-description.md`
+- Upload the new `modsweep-vX.Y.Z-windows-gui.zip` as the page's main
+  file and `modsweep-vX.Y.Z-windows-cli.zip` as an optional file (each
+  holds one self-contained exe), straight from the GitHub release, and
+  update the page version. Page copy lives in `docs/nexus-description.md`
   (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
   Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
   master first, then update the mirror.

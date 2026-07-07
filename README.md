@@ -17,9 +17,9 @@ only `purge` (or an explicit `sweep --apply --delete`) is permanent.**
 - **Standalone executables** (no Python required): grab the archive for
   your platform from the [latest release](https://github.com/zspatter/mod-sweep/releases/latest) -
   each contains the `modsweep` CLI and the `modsweep-gui` app. On Windows
-  a `-portable` zip is also attached: the same two programs as
-  self-contained single-file exes (slower to start, and more likely to
-  draw antivirus warnings - the trade-off for one-file convenience).
+  the same programs are also attached as self-contained single-file exes
+  (`-gui` and `-cli` zips): slower to start, and more likely to draw
+  antivirus warnings - the trade-off for one-file convenience.
 - **PyPI**: `uv tool install "modsweep[gui]"` (or
   `pipx install "modsweep[gui]"`) installs both commands; drop the `[gui]`
   extra for the CLI only. Upgrade later with `uv tool upgrade modsweep`.

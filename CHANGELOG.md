@@ -8,10 +8,10 @@ Notable changes to Mod Sweep. The format follows
 
 ### Added
 
-- Windows releases additionally carry a `-portable` zip: the CLI and GUI
-  as self-contained single-file exes. This is also the NexusMods artifact
-  (the two-exe layout mod users expect); the onedir folder zip remains
-  the primary GitHub archive.
+- Windows releases additionally carry the CLI and GUI as self-contained
+  single-file exes, zipped individually (`-gui` and `-cli`). These are
+  the NexusMods files (GUI as the main download); the onedir folder zip
+  remains the primary GitHub archive.
 
 ## [0.2.2] - 2026-07-06
 

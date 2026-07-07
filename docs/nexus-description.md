@@ -102,8 +102,9 @@ on *latest only* in the config editor to keep just the newest version of
 every list automatically. Old versions you want to keep can be pinned
 with a right-click. Run Report again and watch the reclaim number grow.
 
-**Command line included.** The same engine ships as `modsweep.exe` for
-scripting and scheduled cleanups: `report` (with CSV export), `hash`,
+**Command line included.** The same engine ships as `modsweep.exe` - a
+separate download under optional files - for scripting and scheduled
+cleanups: `report` (with CSV export), `hash`,
 `sweep` (dry run by default), `restore`, `purge`, `snapshot` (export
 durable whitelists that survive deleting the original `.wabbajack`),
 `update-manifests`, and `check-update`. Every command, flag, and config
