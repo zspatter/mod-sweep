@@ -23,6 +23,8 @@ clone with `uv sync --extra gui` done.
    - builds the console `modsweep` + windowed `modsweep-gui` executables on
      Windows/Linux/macOS, smoke-tests each frozen CLI (including bundled
      manifest resolution), and attaches the archives to the GitHub release.
+     Windows additionally gets a `-portable` zip with single-file exes -
+     the artifact that goes to NexusMods.
 5. Verify: the PyPI page shows the new version; `uv tool upgrade modsweep`
    works; release assets download. Then update NexusMods (below).
 
@@ -49,18 +51,17 @@ new file name prefix.
 
 ## Updating NexusMods
 
-- Upload the new `modsweep-vX.Y.Z-windows.zip` from the GitHub release and
-  update the page version. Page copy lives in `docs/nexus-description.md`
+- Upload the new `modsweep-vX.Y.Z-windows-portable.zip` (two single-file
+  exes - the layout mod users expect from a mod page) from the GitHub
+  release and update the page version. Page copy lives in `docs/nexus-description.md`
   (readable master) with a BBCode mirror in `docs/nexus-description.bbcode` -
   Nexus renders BBCode, not Markdown, so paste the `.bbcode` file. Edit the
   master first, then update the mirror.
-- New uploads may get auto-quarantined: unsigned PyInstaller builds trip
-  AV heuristics (new hash, no reputation). Support review with the GitHub
-  repo and CI build linked clears it. The build is onedir (one folder,
-  both executables, shared _internal) precisely because the onefile
-  self-extracting stub was the worst offender; if flags persist, a
-  VirusTotal scan link on the page and, ultimately, code signing are the
-  next escalations.
+- Expect new uploads to be flagged for review: unsigned PyInstaller
+  builds trip the scanner regardless of layout (both the onefile and
+  onedir uploads were reviewed). Support review with the GitHub repo and
+  CI build linked clears it; a VirusTotal scan link on the page and,
+  ultimately, code signing are the next escalations.
 
 ## Assets
 

@@ -1,7 +1,13 @@
 # PyInstaller spec building the console CLI and windowed GUI into one
-# onedir folder with a shared _internal (no duplicated Qt). Onedir avoids
-# the self-extracting onefile bootloader that antivirus heuristics (and
-# NexusMods' scanner) routinely flag on unsigned builds.
+# onedir folder with a shared _internal (no duplicated Qt). Onedir skips
+# the self-extract-at-launch behavior desktop AV heuristics dislike, and
+# starts faster for it.
+#
+# On Windows the spec ALSO emits single-file portable exes (dist/*.exe),
+# zipped as the -portable release asset. That zip doubles as the NexusMods
+# upload: two bare exes are the layout mod users expect, and Nexus flags
+# new unsigned binaries for review regardless (both onefile and onedir
+# uploads were reviewed).
 #
 #   uv run pyinstaller packaging/modsweep.spec
 import sys
@@ -47,3 +53,27 @@ COLLECT(
     name="modsweep",
     upx=False,
 )
+
+
+def build_portable(analysis, name: str, console: bool):
+    """A self-contained single-file exe (everything inside; extracts to a
+    temp dir at launch)."""
+    pyz = PYZ(analysis.pure)
+    return EXE(
+        pyz,
+        analysis.scripts,
+        analysis.binaries,
+        analysis.datas,
+        name=name,
+        console=console,
+        icon=icon,
+        upx=False,
+    )
+
+
+if sys.platform == "win32":
+    # dist/modsweep.exe and dist/modsweep-gui.exe land next to the
+    # dist/modsweep/ onedir folder (distinct names on Windows; skipped
+    # elsewhere, where a bare 'modsweep' file would collide with the dir).
+    build_portable(cli_analysis, "modsweep", console=True)
+    build_portable(gui_analysis, "modsweep-gui", console=False)

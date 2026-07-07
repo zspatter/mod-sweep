@@ -4,6 +4,15 @@ Notable changes to Mod Sweep. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Windows releases additionally carry a `-portable` zip: the CLI and GUI
+  as self-contained single-file exes. This is also the NexusMods artifact
+  (the two-exe layout mod users expect); the onedir folder zip remains
+  the primary GitHub archive.
+
 ## [0.2.2] - 2026-07-06
 
 ### Fixed

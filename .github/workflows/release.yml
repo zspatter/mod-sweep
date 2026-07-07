@@ -71,14 +71,25 @@ jobs:
           echo "nolvus = ['bundled']" > smoke/modsweep.toml
           "$exe" report --config smoke/modsweep.toml \
             --downloads smoke/downloads --cache smoke/c.sqlite | grep -i nolvus
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # The portable single-file exe resolves the same package data
+            # from its self-extracted temp dir - a separate code path.
+            ./dist/modsweep.exe --help
+            ./dist/modsweep.exe report --config smoke/modsweep.toml \
+              --downloads smoke/downloads --cache smoke/c2.sqlite | grep -i nolvus
+          fi
       - name: Package artifacts
         shell: bash
         run: |
           cd dist
           # onedir: one folder holding both executables and a shared
-          # _internal (fewer AV false positives than onefile stubs).
+          # _internal. The Windows -portable zip (two single-file exes)
+          # is what goes to NexusMods - the layout mod users expect;
+          # Nexus reviews new unsigned binaries either way.
           case "${{ runner.os }}" in
-            Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep ;;
+            Windows) 7z a "modsweep-${{ github.ref_name }}-windows.zip" modsweep
+                     7z a "modsweep-${{ github.ref_name }}-windows-portable.zip" \
+                       modsweep.exe modsweep-gui.exe ;;
             macOS)   zip -r "modsweep-${{ github.ref_name }}-macos.zip" modsweep ;;
             Linux)   tar czf "modsweep-${{ github.ref_name }}-linux.tar.gz" modsweep ;;
           esac
