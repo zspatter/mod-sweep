@@ -12,6 +12,11 @@ on:
     - cron: '17 6 * * 1' # Mondays 06:17 UTC: catch runner/toolchain drift
   workflow_dispatch:
 
+# a superseded run is cancelled by the next push to the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (${{ matrix.container || matrix.os }}, py${{ matrix.python }})
